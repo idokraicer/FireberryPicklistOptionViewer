@@ -246,7 +246,8 @@ declare global {
         // Function to try adding the button
         const tryAddButton = () => {
           const actionsSibling = field.nextElementSibling as HTMLElement;
-          const actionsContainer = actionsSibling?.querySelector('.sc-cJtMhR') as HTMLElement;
+          const copyTid = actionsSibling?.querySelector('[data-tid="copy"]');
+          const actionsContainer = copyTid?.parentElement as HTMLElement;
           if (actionsContainer && !actionsContainer.querySelector('.fireberry-copy-api-button')) {
             addCopyButton(actionsContainer, apiName);
             return true;
@@ -286,6 +287,7 @@ declare global {
     const copyButton = document.createElement('div');
     copyButton.className = 'fireberry-copy-api-button sc-hRllfu iYFQDg';
     copyButton.setAttribute('data-tid', 'copy-api-name');
+    copyButton.setAttribute('data-api-name', apiName);
     copyButton.title = 'Copy API name';
     copyButton.style.cssText =
       'cursor: pointer; ' +
@@ -297,7 +299,10 @@ declare global {
       'padding: 0; ' +
       'margin: 0; ' +
       'border-radius: 50%; ' +
-      'transition: background-color 0.2s;';
+      'transition: background-color 0.2s; ' +
+      'position: relative; ' +
+      'z-index: 10; ' +
+      'pointer-events: auto;';
 
     // Add hover effect - match the circular gray background
     copyButton.addEventListener('mouseenter', () => {
@@ -326,8 +331,17 @@ declare global {
 
     copyButton.appendChild(svg);
 
+    // Stop propagation early to prevent Fireberry's handlers from intercepting
+    copyButton.addEventListener('mousedown', (e) => {
+      e.stopPropagation();
+    });
+    copyButton.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+    });
+
     copyButton.addEventListener('click', async (e) => {
       e.stopPropagation();
+      e.preventDefault();
       try {
         await navigator.clipboard.writeText(apiName);
         // Visual feedback - change SVG color to green
