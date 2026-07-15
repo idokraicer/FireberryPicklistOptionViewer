@@ -7,6 +7,7 @@ import manifest from './manifest.json';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pageScriptPath = resolve(__dirname, 'src/content/pageScript.ts');
+const contentSourceDir = resolve(__dirname, 'src/content');
 
 /**
  * Builds pageScript.ts independently using esbuild, bypassing the crx plugin's
@@ -43,9 +44,9 @@ function pageScriptPlugin(): Plugin {
       }
     },
     configureServer(server) {
-      server.watcher.add(pageScriptPath);
+      server.watcher.add(contentSourceDir);
       server.watcher.on('change', async (changedPath) => {
-        if (changedPath === pageScriptPath) {
+        if (changedPath.startsWith(contentSourceDir)) {
           const { writeFileSync } = await import('fs');
           const code = await compile();
           writeFileSync(resolve(__dirname, 'dist/pageScript.js'), code);
