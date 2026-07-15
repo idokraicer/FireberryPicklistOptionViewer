@@ -26,11 +26,11 @@ describe('Fireberry HTML formula context detection', () => {
     expect(isLikelyHtmlFormulaContext('Formula result type Number')).toBe(false);
   });
 
-  test('only treats visibly multiline textareas as formula controls', () => {
-    expect(isFormulaControlCandidate('textarea', 'textarea', 120)).toBe(true);
-    expect(isFormulaControlCandidate('textarea', 'textarea', 58)).toBe(false);
-    expect(isFormulaControlCandidate('input', 'text', 120)).toBe(false);
-    expect(isFormulaControlCandidate('input', 'hidden', 120)).toBe(false);
+  test('treats all non-hidden textareas as formula-control candidates', () => {
+    expect(isFormulaControlCandidate('textarea', 'textarea')).toBe(true);
+    expect(isFormulaControlCandidate('textarea', '')).toBe(true);
+    expect(isFormulaControlCandidate('input', 'text')).toBe(false);
+    expect(isFormulaControlCandidate('input', 'hidden')).toBe(false);
   });
 
   test('recognizes Fireberry formula operator cells', () => {

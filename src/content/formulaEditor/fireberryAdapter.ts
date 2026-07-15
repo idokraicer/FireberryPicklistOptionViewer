@@ -15,11 +15,9 @@ export function isLikelyHtmlFormulaContext(text: string): boolean {
 export function isFormulaControlCandidate(
   tagName: string,
   type: string,
-  clientHeight: number,
 ): boolean {
   return tagName.toLocaleLowerCase() === 'textarea'
-    && type.toLocaleLowerCase() !== 'hidden'
-    && clientHeight >= 80;
+    && type.toLocaleLowerCase() !== 'hidden';
 }
 
 export function isFormulaOperatorText(text: string): boolean {
@@ -160,7 +158,7 @@ export function enhanceFormulaFields(root: ParentNode = document): void {
   const controls = root.querySelectorAll<HTMLTextAreaElement>('textarea');
 
   controls.forEach((control) => {
-    if (!isFormulaControlCandidate(control.tagName, control.type, control.clientHeight)) return;
+    if (!isFormulaControlCandidate(control.tagName, control.type)) return;
     if (control.closest('.fireberry-html-editor-overlay')) return;
     if (control.hasAttribute(ENHANCED_ATTRIBUTE)) {
       const launcher = launchers.get(control);
