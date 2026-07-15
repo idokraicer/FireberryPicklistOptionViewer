@@ -10,6 +10,10 @@ export function isLikelyHtmlFormulaContext(text: string): boolean {
   return hasHtml && hasFormula;
 }
 
+export function isFormulaControlCandidate(tagName: string, type: string): boolean {
+  return tagName.toLocaleLowerCase() === 'textarea' && type.toLocaleLowerCase() !== 'hidden';
+}
+
 function findEligibleContext(control: HTMLTextAreaElement | HTMLInputElement): HTMLElement | null {
   let element: HTMLElement | null = control.parentElement;
   let fallback: HTMLElement | null = null;
@@ -95,9 +99,10 @@ function addLauncher(control: HTMLTextAreaElement | HTMLInputElement): void {
 }
 
 export function enhanceFormulaFields(root: ParentNode = document): void {
-  const controls = root.querySelectorAll<HTMLTextAreaElement | HTMLInputElement>('textarea, input[type="text"]');
+  const controls = root.querySelectorAll<HTMLTextAreaElement>('textarea');
 
   controls.forEach((control) => {
+    if (!isFormulaControlCandidate(control.tagName, control.type)) return;
     if (control.closest('.fireberry-html-editor-overlay')) return;
     if (control.hasAttribute(ENHANCED_ATTRIBUTE)) return;
     if (!findEligibleContext(control)) return;

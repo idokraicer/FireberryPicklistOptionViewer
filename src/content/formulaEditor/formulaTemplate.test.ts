@@ -41,4 +41,16 @@ describe('formula template compiler', () => {
   test('rejects unsupported formulas without partial output', () => {
     expect(decompileFormula('IF(a = 1, "<b>x</b>", "")').ok).toBe(false);
   });
+
+  test('decompiles an existing ManyChat formula with whitespace around concatenation', () => {
+    const formula = `"<style> .watit{ color: black ; height: 25px !important; font-size: 16px; text-decoration: none; display: block; border-radius: 20px; border: 1px solid #0096FF; padding:10px 15px 6px} .watit:hover{cursor: pointer; color: white !important; background-color: #0096FF; border-color: white !important; text-decoration: none; transition:.5s all;}</style>" +
+   "<a class='watit' href='https://manychat.com/fb514678/chat/" + HTMLENCODE(pcfsystemfield116)  + "' target='_blank' >עבור לשיחה בManyChat</a>"`;
+
+    const result = decompileFormula(formula);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.template).toContain('{{pcfsystemfield116}}');
+    expect(result.template).toContain('עבור לשיחה בManyChat');
+  });
 });
