@@ -1,3 +1,8 @@
+import {
+  enhanceFormulaFields,
+  removeFormulaEditorEnhancements,
+} from './formulaEditor/fireberryAdapter';
+
 /**
  * Page script that runs in the main world (page context)
  * This script can access React's fiber properties on DOM elements
@@ -147,9 +152,11 @@ declare global {
   function labelWithDelay(): void {
     labelReactSelectOptions();
     labelFieldApiNames();
+    enhanceFormulaFields();
     requestAnimationFrame(() => {
       labelReactSelectOptions();
       labelFieldApiNames();
+      enhanceFormulaFields();
     });
   }
 
@@ -359,6 +366,7 @@ declare global {
   }
 
   function removeBadges(): void {
+    removeFormulaEditorEnhancements();
     document.querySelectorAll('.fireberry-value-badge').forEach((badge) => {
       badge.remove();
     });
