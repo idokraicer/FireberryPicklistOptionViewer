@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
   isFormulaControlCandidate,
-  isFormulaOperatorText,
   isLikelyHtmlFormulaContext,
 } from './fireberryAdapter';
 
@@ -27,15 +26,16 @@ describe('Fireberry HTML formula context detection', () => {
   });
 
   test('treats all non-hidden textareas as formula-control candidates', () => {
-    expect(isFormulaControlCandidate('textarea', 'textarea')).toBe(true);
-    expect(isFormulaControlCandidate('textarea', '')).toBe(true);
-    expect(isFormulaControlCandidate('input', 'text')).toBe(false);
-    expect(isFormulaControlCandidate('input', 'hidden')).toBe(false);
+    expect(isFormulaControlCandidate('textarea', 'textarea', false, '')).toBe(true);
+    expect(isFormulaControlCandidate('textarea', '', false, '')).toBe(true);
+    expect(isFormulaControlCandidate('input', 'text', false, 'textbox')).toBe(false);
+    expect(isFormulaControlCandidate('input', 'hidden', false, '')).toBe(false);
   });
 
-  test('recognizes Fireberry formula operator cells', () => {
-    expect(['+', '*', '-', '/', '(', ')', '=', '<', '>', '<>', '<=', '>='].every(isFormulaOperatorText)).toBe(true);
-    expect(isFormulaOperatorText('הוסף')).toBe(false);
-    expect(isFormulaOperatorText('AND')).toBe(false);
+  test('recognizes contenteditable formula controls', () => {
+    expect(isFormulaControlCandidate('div', '', true, 'textbox')).toBe(true);
+    expect(isFormulaControlCandidate('div', '', true, '')).toBe(true);
+    expect(isFormulaControlCandidate('div', '', false, 'textbox')).toBe(true);
+    expect(isFormulaControlCandidate('div', '', false, '')).toBe(false);
   });
 });

@@ -2,8 +2,6 @@ import { closeOpenFormulaEditor, openFormulaEditor } from './editorModal';
 
 const ENHANCED_ATTRIBUTE = 'data-fireberry-html-editor-enhanced';
 const LAUNCHER_CLASS = 'fireberry-html-editor-launcher';
-const FORMULA_OPERATORS = new Set(['+', '*', '-', '/', '(', ')', '=', '<', '>', '<>', '<=', '>=']);
-const launchers = new WeakMap<HTMLTextAreaElement | HTMLInputElement, HTMLButtonElement>();
 
 export function isLikelyHtmlFormulaContext(text: string): boolean {
   const normalized = text.replace(/\s+/g, ' ').toLocaleLowerCase();
@@ -15,73 +13,38 @@ export function isLikelyHtmlFormulaContext(text: string): boolean {
 export function isFormulaControlCandidate(
   tagName: string,
   type: string,
+  isContentEditable: boolean,
+  role: string,
 ): boolean {
-  return tagName.toLocaleLowerCase() === 'textarea'
-    && type.toLocaleLowerCase() !== 'hidden';
+  const normalizedTag = tagName.toLocaleLowerCase();
+  if (normalizedTag === 'input') return false;
+  if (normalizedTag === 'textarea') return type.toLocaleLowerCase() !== 'hidden';
+  return isContentEditable || role.toLocaleLowerCase() === 'textbox';
 }
 
-export function isFormulaOperatorText(text: string): boolean {
-  return FORMULA_OPERATORS.has(text.trim());
-}
+function findEligibleContext(control: HTMLElement): HTMLElement | null {
+  const dialog = control.closest<HTMLElement>('[role="dialog"]');
+  if (dialog && isLikelyHtmlFormulaContext(dialog.textContent ?? '')) return dialog;
 
-function findOperatorGrid(control: HTMLTextAreaElement | HTMLInputElement): HTMLElement | null {
-  let scope: HTMLElement | null = control.parentElement;
-
-  for (let depth = 0; scope && depth < 5; depth += 1) {
-    const operatorLeaves = [...scope.querySelectorAll<HTMLElement>('*')].filter((element) =>
-      element.childElementCount === 0 && isFormulaOperatorText(element.textContent ?? ''),
-    );
-
-    if (operatorLeaves.length >= 8) {
-      let commonParent = operatorLeaves[0].parentElement;
-      while (commonParent && !operatorLeaves.every((element) => commonParent?.contains(element))) {
-        commonParent = commonParent.parentElement;
-      }
-      if (commonParent) return commonParent;
-    }
-
-    scope = scope.parentElement;
-  }
-
-  return null;
-}
-
-function placeLauncherInToolbar(
-  control: HTMLTextAreaElement | HTMLInputElement,
-  launcher: HTMLButtonElement,
-): boolean {
-  const grid = findOperatorGrid(control);
-  if (!grid) return false;
-
-  const operators = [...grid.querySelectorAll<HTMLElement>('*')].filter((element) =>
-    element.childElementCount === 0 && isFormulaOperatorText(element.textContent ?? ''),
-  );
-  const anchorLeaf = operators.find((element) => element.textContent?.trim() === '>=')
-    ?? operators[operators.length - 1];
-  if (!anchorLeaf) return false;
-
-  let anchorCell = anchorLeaf;
-  while (anchorCell.parentElement && anchorCell.parentElement !== grid) {
-    anchorCell = anchorCell.parentElement;
-  }
-  anchorCell.insertAdjacentElement('afterend', launcher);
-  launcher.dataset.placement = 'toolbar';
-  launcher.style.marginTop = '0';
-  return true;
-}
-
-function findEligibleContext(control: HTMLTextAreaElement | HTMLInputElement): HTMLElement | null {
   let element: HTMLElement | null = control.parentElement;
+  let fallback: HTMLElement | null = null;
 
-  for (let depth = 0; element && depth < 8; depth += 1) {
+  for (let depth = 0; element && depth < 20; depth += 1) {
     const text = element.textContent ?? '';
     if (isLikelyHtmlFormulaContext(text)) {
-      return element;
+      fallback = element;
+      if (
+        text.includes('הכניסו נוסחה')
+        || /enter\s+formula/i.test(text)
+        || /formula\s+(input|expression)/i.test(text)
+      ) {
+        return element;
+      }
     }
     element = element.parentElement;
   }
 
-  return null;
+  return fallback;
 }
 
 export function setNativeControlValue(
@@ -100,24 +63,44 @@ export function setNativeControlValue(
   control.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
-function addLauncher(control: HTMLTextAreaElement | HTMLInputElement): void {
+function getFormulaControlValue(control: HTMLElement): string {
+  if (control instanceof HTMLTextAreaElement || control instanceof HTMLInputElement) {
+    return control.value;
+  }
+  return control.textContent ?? '';
+}
+
+function setFormulaControlValue(control: HTMLElement, value: string): void {
+  if (control instanceof HTMLTextAreaElement || control instanceof HTMLInputElement) {
+    setNativeControlValue(control, value);
+    return;
+  }
+
+  control.focus();
+  control.textContent = value;
+  control.dispatchEvent(new InputEvent('input', {
+    bubbles: true,
+    inputType: 'insertText',
+    data: value,
+  }));
+  control.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+function addLauncher(control: HTMLElement): void {
   if (control.hasAttribute(ENHANCED_ATTRIBUTE)) return;
   control.setAttribute(ENHANCED_ATTRIBUTE, 'true');
 
   const launcher = document.createElement('button');
   launcher.type = 'button';
   launcher.className = LAUNCHER_CLASS;
-  launcher.textContent = '</> HTML';
+  launcher.textContent = '</> פתח עורך HTML';
   launcher.title = 'Open the readable HTML formula editor';
   launcher.style.cssText = [
     'display:inline-flex',
     'align-items:center',
-    'justify-content:center',
     'gap:6px',
-    'min-width:72px',
-    'height:34px',
-    'margin:0',
-    'padding:0 8px',
+    'margin-top:8px',
+    'padding:7px 11px',
     'border:1px solid #a884e6',
     'border-radius:6px',
     'background:#f8f4ff',
@@ -139,36 +122,31 @@ function addLauncher(control: HTMLTextAreaElement | HTMLInputElement): void {
     event.stopPropagation();
     if (!control.isConnected) return;
     openFormulaEditor({
-      initialFormula: control.value,
+      initialFormula: getFormulaControlValue(control),
       onApply(formula) {
-        if (control.isConnected) setNativeControlValue(control, formula);
+        if (control.isConnected) setFormulaControlValue(control, formula);
       },
     });
   });
 
-  launchers.set(control, launcher);
-  if (!placeLauncherInToolbar(control, launcher)) {
-    launcher.dataset.placement = 'fallback';
-    launcher.style.marginTop = '8px';
-    control.insertAdjacentElement('afterend', launcher);
-  }
+  control.insertAdjacentElement('afterend', launcher);
 }
 
 export function enhanceFormulaFields(root: ParentNode = document): void {
-  const controls = root.querySelectorAll<HTMLTextAreaElement>('textarea');
+  const controls = root.querySelectorAll<HTMLElement>('textarea, [contenteditable="true"], [role="textbox"]');
 
   controls.forEach((control) => {
-    if (!isFormulaControlCandidate(control.tagName, control.type)) return;
+    const type = control instanceof HTMLInputElement || control instanceof HTMLTextAreaElement
+      ? control.type
+      : '';
+    if (!isFormulaControlCandidate(
+      control.tagName,
+      type,
+      control.isContentEditable,
+      control.getAttribute('role') ?? '',
+    )) return;
     if (control.closest('.fireberry-html-editor-overlay')) return;
-    if (control.hasAttribute(ENHANCED_ATTRIBUTE)) {
-      const launcher = launchers.get(control);
-      if (!launcher?.isConnected) {
-        control.removeAttribute(ENHANCED_ATTRIBUTE);
-      } else if (launcher.dataset.placement === 'fallback') {
-        placeLauncherInToolbar(control, launcher);
-      }
-      if (control.hasAttribute(ENHANCED_ATTRIBUTE)) return;
-    }
+    if (control.hasAttribute(ENHANCED_ATTRIBUTE)) return;
     if (!findEligibleContext(control)) return;
     addLauncher(control);
   });
