@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { isFormulaControlCandidate, isLikelyHtmlFormulaContext } from './fireberryAdapter';
+import {
+  isFormulaControlCandidate,
+  isFormulaOperatorText,
+  isLikelyHtmlFormulaContext,
+} from './fireberryAdapter';
 
 describe('Fireberry HTML formula context detection', () => {
   test('recognizes the Hebrew HTML formula dialog', () => {
@@ -10,6 +14,10 @@ describe('Fireberry HTML formula context detection', () => {
     expect(isLikelyHtmlFormulaContext('Field settings Result type HTML Enter formula System name')).toBe(true);
   });
 
+  test('recognizes a formula context even when the input hint is not in textContent', () => {
+    expect(isLikelyHtmlFormulaContext('הגדרות שדה תיבת טקסט (HTML) נוסחה שם מערכת')).toBe(true);
+  });
+
   test('rejects HTML fields without formula input', () => {
     expect(isLikelyHtmlFormulaContext('HTML content field settings')).toBe(false);
   });
@@ -18,13 +26,16 @@ describe('Fireberry HTML formula context detection', () => {
     expect(isLikelyHtmlFormulaContext('Formula result type Number')).toBe(false);
   });
 
-  test('rejects the general new-field picker containing HTML and formula tiles', () => {
-    expect(isLikelyHtmlFormulaContext('יצירת שדה חדש חפש שדות בסיס טקסט נוסחה תיבת טקסט (HTML) מתקדם')).toBe(false);
+  test('only treats visibly multiline textareas as formula controls', () => {
+    expect(isFormulaControlCandidate('textarea', 'textarea', 120)).toBe(true);
+    expect(isFormulaControlCandidate('textarea', 'textarea', 58)).toBe(false);
+    expect(isFormulaControlCandidate('input', 'text', 120)).toBe(false);
+    expect(isFormulaControlCandidate('input', 'hidden', 120)).toBe(false);
   });
 
-  test('only treats multiline textareas as formula controls', () => {
-    expect(isFormulaControlCandidate('textarea', '')).toBe(true);
-    expect(isFormulaControlCandidate('input', 'text')).toBe(false);
-    expect(isFormulaControlCandidate('input', 'hidden')).toBe(false);
+  test('recognizes Fireberry formula operator cells', () => {
+    expect(['+', '*', '-', '/', '(', ')', '=', '<', '>', '<>', '<=', '>='].every(isFormulaOperatorText)).toBe(true);
+    expect(isFormulaOperatorText('הוסף')).toBe(false);
+    expect(isFormulaOperatorText('AND')).toBe(false);
   });
 });
