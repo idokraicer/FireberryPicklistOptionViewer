@@ -18,6 +18,10 @@ describe('Fireberry HTML formula context detection', () => {
     expect(isLikelyHtmlFormulaContext('Formula result type Number')).toBe(false);
   });
 
+  test('rejects the general new-field picker containing HTML and formula tiles', () => {
+    expect(isLikelyHtmlFormulaContext('יצירת שדה חדש חפש שדות בסיס טקסט נוסחה תיבת טקסט (HTML) מתקדם')).toBe(false);
+  });
+
   test('only treats multiline textareas as formula controls', () => {
     expect(isFormulaControlCandidate('textarea', '')).toBe(true);
     expect(isFormulaControlCandidate('input', 'text')).toBe(false);

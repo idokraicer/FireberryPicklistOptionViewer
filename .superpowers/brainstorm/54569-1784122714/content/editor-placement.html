@@ -1,0 +1,60 @@
+<h2>Where should the HTML editor live?</h2>
+<p class="subtitle">Click the layout that would feel most natural while editing a Fireberry formula field.</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:16px;background:#f5f6f8">
+      <div style="background:white;border:1px solid #ddd;border-radius:8px;padding:14px;max-width:390px;margin:auto;direction:rtl">
+        <div style="font-weight:700;margin-bottom:12px">נוסחה</div>
+        <div style="font-size:11px;color:#777;margin-bottom:5px">הכניסו נוסחה</div>
+        <div style="border:1px solid #bbc1c8;border-radius:4px;height:65px;padding:8px;font:10px monospace;direction:ltr">"&lt;a href='..." + field + "...'&gt;"</div>
+        <button style="margin-top:8px;border:1px solid #11bc91;background:white;color:#08a77f;border-radius:4px;padding:7px 12px">פתח עורך HTML</button>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A. Separate editor modal</h3>
+      <p>A button beside the formula opens a large workspace with HTML, preview, and generated formula. Best room for real editing.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:16px;background:#f5f6f8">
+      <div style="background:white;border:1px solid #ddd;border-radius:8px;padding:14px;max-width:390px;margin:auto;direction:rtl">
+        <div style="font-weight:700;margin-bottom:12px">נוסחה</div>
+        <div style="border:1px solid #bbc1c8;border-radius:4px;height:48px;padding:8px;font:10px monospace;direction:ltr">"&lt;a href='..." + field</div>
+        <div style="margin-top:8px;border:2px solid #9b6cf2;border-radius:6px;padding:9px;background:#faf8ff">
+          <div style="display:flex;justify-content:space-between;font-size:11px;font-weight:700"><span>Preview</span><span>HTML editor</span></div>
+          <div style="display:flex;gap:7px;margin-top:7px;direction:ltr">
+            <div style="flex:1;height:75px;border:1px solid #ddd;background:white;padding:5px;font:8px monospace">&lt;a href="https://wa.me/{{field}}"&gt;<br>WhatsApp<br>&lt;/a&gt;</div>
+            <div style="flex:1;height:75px;border:1px solid #ddd;background:white;display:grid;place-items:center;color:#087b61">WhatsApp ↗</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B. Expand inside Fireberry</h3>
+      <p>The editor unfolds under the existing formula box. Fast and contextual, but space is tight in the current dialog.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:16px;background:#f5f6f8">
+      <div style="display:flex;gap:7px;direction:rtl">
+        <div style="background:white;border:1px solid #ddd;border-radius:8px;padding:12px;width:40%;font-size:10px">
+          <b>נוסחה</b><div style="margin-top:15px;border:1px solid #ccc;height:95px"></div>
+        </div>
+        <div style="background:white;border:2px solid #9b6cf2;border-radius:8px;padding:12px;width:60%;direction:ltr">
+          <b style="font-size:11px">HTML Formula Editor</b>
+          <div style="margin-top:8px;border:1px solid #ddd;height:52px;padding:5px;font:8px monospace">&lt;a href="https://wa.me/{{field}}"&gt;</div>
+          <div style="margin-top:7px;border:1px solid #ddd;height:38px;display:grid;place-items:center;font-size:10px;color:#087b61">WhatsApp ↗</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C. Docked side panel</h3>
+      <p>Keeps Fireberry and the editor visible together. Powerful, though it can cover the underlying page on smaller screens.</p>
+    </div>
+  </div>
+</div>
+
+<p style="margin-top:18px"><strong>My recommendation: A.</strong> The existing formula dialog is narrow, so a dedicated modal gives the HTML and preview enough room without permanently changing Fireberry’s layout.</p>

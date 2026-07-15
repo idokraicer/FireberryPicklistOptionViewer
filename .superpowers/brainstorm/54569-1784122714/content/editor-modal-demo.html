@@ -1,0 +1,84 @@
+<style>
+  .demo-shell{background:#eef0f3;border-radius:14px;padding:22px;min-height:650px;font-family:Inter,Arial,sans-serif;color:#262832}
+  .fireberry-behind{height:65px;background:#fff;border:1px solid #e2e4e8;border-radius:10px;padding:14px 18px;direction:rtl;opacity:.55;box-shadow:0 2px 12px rgba(28,35,48,.05)}
+  .editor-modal{position:relative;margin:-36px auto 0;max-width:1040px;background:#fff;border:1px solid #dcdfe5;border-radius:13px;box-shadow:0 24px 70px rgba(34,38,48,.20);overflow:hidden}
+  .editor-top{display:flex;align-items:center;justify-content:space-between;padding:17px 21px;border-bottom:1px solid #e8e9ed}
+  .editor-title{display:flex;align-items:center;gap:11px}.editor-icon{display:grid;place-items:center;width:34px;height:34px;border-radius:9px;background:#efe9ff;color:#8657dd;font-weight:800}
+  .editor-title h3{margin:0;font-size:16px}.editor-title p{margin:3px 0 0;color:#808590;font-size:11px}
+  .close-x{border:0;background:#f3f4f6;border-radius:7px;width:30px;height:30px;color:#777;font-size:18px}
+  .workspace{display:grid;grid-template-columns:1.15fr .85fr;min-height:470px}
+  .left-pane{padding:18px;border-right:1px solid #e8e9ed}.right-pane{padding:18px;background:#fafbfc}
+  .section-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.section-title{font-size:12px;font-weight:750}.hint{font-size:10px;color:#8a8f98}
+  .codebox{display:flex;border:1px solid #cdd1d8;border-radius:8px;overflow:hidden;background:#151821;box-shadow:inset 0 1px 2px rgba(0,0,0,.08)}
+  .lines{padding:12px 9px;background:#1d202a;color:#666c78;font:11px/1.75 ui-monospace,monospace;text-align:right;user-select:none}
+  .code{padding:12px;width:100%;color:#dfe3eb;font:11px/1.75 ui-monospace,monospace;white-space:pre;direction:ltr;min-height:184px}
+  .tag{color:#f58db2}.attr{color:#c8a8ff}.val{color:#92d8a4}.placeholder-token{background:#6242a5;color:#f5edff;border-radius:3px;padding:1px 3px}
+  .toolbar{display:flex;gap:7px;margin-top:9px}.toolbtn{font-size:10px;padding:6px 9px;border:1px solid #d7dae0;background:#fff;border-radius:6px;color:#555}.toolbtn.primary-lite{border-color:#b99bea;color:#7546cb;background:#f8f4ff}
+  .samples{margin-top:18px}.sample-row{display:grid;grid-template-columns:160px 1fr;align-items:center;gap:10px;margin-top:8px}.sample-key{font:10px ui-monospace,monospace;color:#6940b1;background:#f3edff;padding:7px 8px;border-radius:6px;overflow:hidden;text-overflow:ellipsis}.sample-input{border:1px solid #cfd3da;border-radius:6px;padding:7px 9px;font-size:11px;color:#3c414a;background:#fff}
+  .preview-card,.formula-card{background:#fff;border:1px solid #dfe2e7;border-radius:9px;overflow:hidden}.card-bar{display:flex;align-items:center;justify-content:space-between;padding:9px 11px;border-bottom:1px solid #e8eaee;font-size:11px;font-weight:700}.safe{font-size:9px;color:#298b6c;background:#e9f8f2;padding:3px 6px;border-radius:10px;font-weight:600}
+  .preview-body{min-height:122px;display:grid;place-items:center;background:linear-gradient(135deg,#fff,#f7f9fb)}
+  .wa-link{display:flex;align-items:center;gap:8px;background:#25d366;color:#fff;border-radius:8px;padding:10px 16px;text-decoration:none;font-size:12px;font-weight:700;box-shadow:0 5px 14px rgba(37,211,102,.25)}
+  .formula-card{margin-top:14px}.formula-output{background:#f6f7f9;padding:11px;font:9.5px/1.6 ui-monospace,monospace;direction:ltr;white-space:pre-wrap;color:#4e535d;min-height:105px}.valid{padding:8px 11px;border-top:1px solid #e4e6ea;font-size:9px;color:#21845f;background:#f4fbf8}
+  .footer{display:flex;align-items:center;justify-content:space-between;padding:13px 19px;border-top:1px solid #e4e6eb;background:#fff}.footer-note{font-size:10px;color:#777d87}.actions{display:flex;gap:8px}.cancel{border:1px solid #d4d7dc;background:#fff;border-radius:7px;padding:8px 14px;font-size:11px}.apply{border:0;background:#16bd91;color:#fff;border-radius:7px;padding:9px 16px;font-size:11px;font-weight:700;box-shadow:0 4px 10px rgba(22,189,145,.22)}
+  @media(max-width:800px){.workspace{grid-template-columns:1fr}.left-pane{border-right:0;border-bottom:1px solid #e8e9ed}.demo-shell{padding:8px}.sample-row{grid-template-columns:1fr}}
+</style>
+
+<h2>High-fidelity editor demo</h2>
+<p class="subtitle">This is the proposed first version. Review the hierarchy, available controls, and the amount of technical detail shown.</p>
+
+<div class="demo-shell">
+  <div class="fireberry-behind"><b>נוסחה</b><div style="font-size:11px;color:#8a8d94;margin-top:8px">HTML formula field · Fireberry dialog remains behind the editor</div></div>
+  <div class="editor-modal">
+    <div class="editor-top">
+      <div class="editor-title"><div class="editor-icon">&lt;/&gt;</div><div><h3>HTML Formula Editor</h3><p>Edit readable HTML and generate a Fireberry-safe formula</p></div></div>
+      <button class="close-x">×</button>
+    </div>
+    <div class="workspace">
+      <section class="left-pane">
+        <div class="section-head"><span class="section-title">HTML template</span><span class="hint">Use {{fieldName}} for dynamic values</span></div>
+        <div class="codebox">
+          <div class="lines">1<br>2<br>3<br>4<br>5<br>6<br>7</div>
+          <div class="code"><span class="tag">&lt;style&gt;</span>
+.wa-link { background: <span class="val">#25d366</span>; color: white; }
+<span class="tag">&lt;/style&gt;</span>
+<span class="tag">&lt;a</span> <span class="attr">class</span>=<span class="val">"wa-link"</span>
+   <span class="attr">href</span>=<span class="val">"https://wa.me/</span><span class="placeholder-token">{{pcfsystemfield115}}</span><span class="val">"</span>
+   <span class="attr">target</span>=<span class="val">"_blank"</span><span class="tag">&gt;</span>
+  Click to WhatsApp
+<span class="tag">&lt;/a&gt;</span></div>
+        </div>
+        <div class="toolbar"><button class="toolbtn primary-lite">+ Insert field</button><button class="toolbtn">Format HTML</button><button class="toolbtn">Copy template</button></div>
+
+        <div class="samples">
+          <div class="section-head"><span class="section-title">Preview data</span><span class="hint">Not saved to Fireberry</span></div>
+          <div class="sample-row"><span class="sample-key">pcfsystemfield115</span><div class="sample-input">972501234567</div></div>
+        </div>
+      </section>
+
+      <aside class="right-pane">
+        <div class="preview-card">
+          <div class="card-bar"><span>Live preview</span><span class="safe">Sandboxed</span></div>
+          <div class="preview-body"><div class="wa-link"><span style="font-size:16px">◉</span> Click to WhatsApp <span>↗</span></div></div>
+        </div>
+        <div class="formula-card">
+          <div class="card-bar"><span>Generated Fireberry formula</span><button class="toolbtn">Copy</button></div>
+          <div class="formula-output">"&lt;style&gt;\n.wa-link { background: #25d366; color: white; }\n&lt;/style&gt;\n" +
+"&lt;a class=\"wa-link\" href=\"https://wa.me/" +
+HTMLENCODE(pcfsystemfield115) +
+"\" target=\"_blank\"&gt;Click to WhatsApp&lt;/a&gt;"</div>
+          <div class="valid">✓ Formula is valid · 1 dynamic field detected</div>
+        </div>
+      </aside>
+    </div>
+    <div class="footer"><span class="footer-note">The original Fireberry formula stays unchanged until you apply.</span><div class="actions"><button class="cancel">Cancel</button><button class="apply">Apply to formula</button></div></div>
+  </div>
+</div>
+
+<div class="options" style="margin-top:18px">
+  <div class="option" data-choice="approve-demo" onclick="toggleSelect(this)">
+    <div class="letter">✓</div><div class="content"><h3>Use this direction</h3><p>The density, two-column layout, and available controls feel right.</p></div>
+  </div>
+  <div class="option" data-choice="simplify-demo" onclick="toggleSelect(this)">
+    <div class="letter">−</div><div class="content"><h3>Simplify it</h3><p>Show fewer technical details and make the core edit/preview flow more prominent.</p></div>
+  </div>
+</div>

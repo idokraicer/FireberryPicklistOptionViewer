@@ -7,7 +7,10 @@ export function isLikelyHtmlFormulaContext(text: string): boolean {
   const normalized = text.replace(/\s+/g, ' ').toLocaleLowerCase();
   const hasHtml = normalized.includes('html');
   const hasFormula = normalized.includes('formula') || normalized.includes('נוסחה');
-  return hasHtml && hasFormula;
+  const hasFormulaInput = normalized.includes('הכניסו נוסחה')
+    || /enter\s+formula/.test(normalized)
+    || /formula\s+(input|expression)/.test(normalized);
+  return hasHtml && hasFormula && hasFormulaInput;
 }
 
 export function isFormulaControlCandidate(tagName: string, type: string): boolean {
@@ -16,24 +19,16 @@ export function isFormulaControlCandidate(tagName: string, type: string): boolea
 
 function findEligibleContext(control: HTMLTextAreaElement | HTMLInputElement): HTMLElement | null {
   let element: HTMLElement | null = control.parentElement;
-  let fallback: HTMLElement | null = null;
 
   for (let depth = 0; element && depth < 8; depth += 1) {
     const text = element.textContent ?? '';
     if (isLikelyHtmlFormulaContext(text)) {
-      fallback = element;
-      if (
-        text.includes('הכניסו נוסחה')
-        || /enter\s+formula/i.test(text)
-        || /formula\s+(input|expression)/i.test(text)
-      ) {
-        return element;
-      }
+      return element;
     }
     element = element.parentElement;
   }
 
-  return fallback;
+  return null;
 }
 
 export function setNativeControlValue(
