@@ -110,7 +110,8 @@ export function extractPlaceholders(template: string): string[] {
 }
 
 export function compileTemplate(template: string): CompileResult {
-  const parsed = parseTemplate(template);
+  const fireberrySafeTemplate = template.replace(/\s*(?:\r\n|\r|\n)+\s*/g, ' ');
+  const parsed = parseTemplate(fireberrySafeTemplate);
   if (parsed.errors.length > 0) return { ok: false, errors: parsed.errors };
 
   const expressions = parsed.tokens.map((token) =>

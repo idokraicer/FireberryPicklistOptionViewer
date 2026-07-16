@@ -16,15 +16,17 @@ describe('formula template compiler', () => {
     expect(result.formula).toContain('https://wa.me/');
   });
 
-  test('preserves quotes, backslashes, and newlines through a round trip', () => {
+  test('preserves quotes and backslashes while removing line breaks Fireberry cannot parse', () => {
     const template = '<div data-path="C:\\temp">\n  Hello {{firstname}}\n</div>';
     const compiled = compileTemplate(template);
 
     expect(compiled.ok).toBe(true);
     if (!compiled.ok) throw new Error('expected success');
+    expect(compiled.formula).not.toContain('\\n');
+    expect(compiled.formula).not.toContain('\\r');
     expect(decompileFormula(compiled.formula)).toEqual({
       ok: true,
-      template,
+      template: '<div data-path="C:\\temp"> Hello {{firstname}} </div>',
       placeholders: ['firstname'],
     });
   });

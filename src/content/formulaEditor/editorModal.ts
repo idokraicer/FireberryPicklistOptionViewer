@@ -1,4 +1,5 @@
 import { compileTemplate, decompileFormula, type CompileResult } from './formulaTemplate';
+import { formatHtmlTemplate } from './htmlFormatter';
 import { createInitialSamples, renderPreviewDocument } from './preview';
 import { FORMULA_EDITOR_CSS } from './editorModal.css';
 
@@ -9,6 +10,28 @@ export interface FormulaEditorOptions {
 
 export interface FormulaEditorHandle {
   close(): void;
+}
+
+export const EDITOR_INTERACTION_EVENTS = [
+  'beforeinput',
+  'change',
+  'click',
+  'compositionend',
+  'compositionstart',
+  'compositionupdate',
+  'cut',
+  'focusin',
+  'input',
+  'keydown',
+  'keypress',
+  'keyup',
+  'mousedown',
+  'paste',
+  'pointerdown',
+] as const;
+
+export function stopEditorEventPropagation(event: Pick<Event, 'stopPropagation'>): void {
+  event.stopPropagation();
 }
 
 export type EditorInitialState =
@@ -90,6 +113,9 @@ export function openFormulaEditor(options: FormulaEditorOptions): FormulaEditorH
   modal.setAttribute('role', 'dialog');
   modal.setAttribute('aria-modal', 'true');
   modal.setAttribute('aria-labelledby', 'fireberry-html-editor-title');
+  EDITOR_INTERACTION_EVENTS.forEach((eventName) => {
+    modal.addEventListener(eventName, stopEditorEventPropagation);
+  });
   overlay.appendChild(modal);
 
   const header = document.createElement('header');
@@ -183,8 +209,7 @@ export function openFormulaEditor(options: FormulaEditorOptions): FormulaEditorH
     toolbar.className = 'fireberry-html-editor-toolbar';
     const insertField = createButton('+ Insert field', 'fireberry-html-editor-button--accent');
     const formatButton = createButton('Format HTML');
-    formatButton.disabled = true;
-    formatButton.title = 'Automatic formatting will be added after Fireberry syntax validation.';
+    formatButton.title = 'Format the HTML template and embedded CSS.';
     const copyTemplate = createButton('Copy template');
     toolbar.append(insertField, formatButton, copyTemplate);
     left.appendChild(toolbar);
@@ -306,6 +331,11 @@ export function openFormulaEditor(options: FormulaEditorOptions): FormulaEditorH
       refresh();
     });
     copyTemplate.addEventListener('click', () => void copyText(copyTemplate, textarea.value));
+    formatButton.addEventListener('click', () => {
+      textarea.value = formatHtmlTemplate(textarea.value);
+      textarea.focus();
+      refresh();
+    });
     copyFormula.addEventListener('click', () => {
       if (latestCompile.ok) void copyText(copyFormula, latestCompile.formula);
     });

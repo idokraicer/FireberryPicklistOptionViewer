@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   isFormulaControlCandidate,
   isLikelyHtmlFormulaContext,
+  shouldRestoreFormulaLauncher,
 } from './fireberryAdapter';
 
 describe('Fireberry HTML formula context detection', () => {
@@ -37,5 +38,11 @@ describe('Fireberry HTML formula context detection', () => {
     expect(isFormulaControlCandidate('div', '', true, '')).toBe(true);
     expect(isFormulaControlCandidate('div', '', false, 'textbox')).toBe(true);
     expect(isFormulaControlCandidate('div', '', false, '')).toBe(false);
+  });
+
+  test('restores the launcher when Fireberry removes it during a React rerender', () => {
+    expect(shouldRestoreFormulaLauncher(true, false)).toBe(true);
+    expect(shouldRestoreFormulaLauncher(true, true)).toBe(false);
+    expect(shouldRestoreFormulaLauncher(false, false)).toBe(false);
   });
 });

@@ -2,6 +2,14 @@ import { closeOpenFormulaEditor, openFormulaEditor } from './editorModal';
 
 const ENHANCED_ATTRIBUTE = 'data-fireberry-html-editor-enhanced';
 const LAUNCHER_CLASS = 'fireberry-html-editor-launcher';
+const launchers = new WeakMap<HTMLElement, HTMLButtonElement>();
+
+export function shouldRestoreFormulaLauncher(
+  isEnhanced: boolean,
+  isLauncherConnected: boolean,
+): boolean {
+  return isEnhanced && !isLauncherConnected;
+}
 
 export function isLikelyHtmlFormulaContext(text: string): boolean {
   const normalized = text.replace(/\s+/g, ' ').toLocaleLowerCase();
@@ -129,6 +137,7 @@ function addLauncher(control: HTMLElement): void {
     });
   });
 
+  launchers.set(control, launcher);
   control.insertAdjacentElement('afterend', launcher);
 }
 
@@ -146,7 +155,12 @@ export function enhanceFormulaFields(root: ParentNode = document): void {
       control.getAttribute('role') ?? '',
     )) return;
     if (control.closest('.fireberry-html-editor-overlay')) return;
-    if (control.hasAttribute(ENHANCED_ATTRIBUTE)) return;
+    const isEnhanced = control.hasAttribute(ENHANCED_ATTRIBUTE);
+    if (shouldRestoreFormulaLauncher(isEnhanced, launchers.get(control)?.isConnected === true)) {
+      control.removeAttribute(ENHANCED_ATTRIBUTE);
+    } else if (isEnhanced) {
+      return;
+    }
     if (!findEligibleContext(control)) return;
     addLauncher(control);
   });
