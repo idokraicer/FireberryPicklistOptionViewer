@@ -1,5 +1,128 @@
 "use strict";
 (() => {
+  // src/content/fieldDeletion.ts
+  function createFieldsMetadataRequest() {
+    return {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json"
+      },
+      body: "{}"
+    };
+  }
+  function extractRecordFormObjectType(payload) {
+    const visited = /* @__PURE__ */ new Set();
+    const search = (value) => {
+      if (!value || typeof value !== "object" || visited.has(value)) return null;
+      visited.add(value);
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          const result = search(item);
+          if (result) return result;
+        }
+        return null;
+      }
+      const record = value;
+      if (record.name === "RecordForm" && record.props && typeof record.props === "object") {
+        const props = record.props;
+        const objectType = Number(props.objectType ?? props.ObjectType);
+        if (Number.isInteger(objectType) && objectType > 0) return objectType;
+      }
+      for (const nested of Object.values(record)) {
+        const result = search(nested);
+        if (result) return result;
+      }
+      return null;
+    };
+    return search(payload);
+  }
+  function parseCustomFields(payload) {
+    const fields = /* @__PURE__ */ new Map();
+    const visited = /* @__PURE__ */ new Set();
+    const visit = (value) => {
+      if (!value || typeof value !== "object" || visited.has(value)) return;
+      visited.add(value);
+      if (Array.isArray(value)) {
+        value.forEach(visit);
+        return;
+      }
+      const record = value;
+      const fieldName = getFirstString(record, [
+        "fieldname",
+        "fieldName",
+        "FieldName",
+        "systemName",
+        "SystemName"
+      ]);
+      if (fieldName?.toLowerCase().startsWith("pcf")) {
+        const key = fieldName.toLowerCase();
+        if (!fields.has(key)) {
+          fields.set(key, {
+            fieldName,
+            displayName: getFirstString(record, [
+              "displayName",
+              "DisplayName",
+              "fieldlabel",
+              "fieldLabel",
+              "FieldLabel",
+              "label",
+              "Label",
+              "title",
+              "Title",
+              "name",
+              "Name"
+            ]) ?? fieldName,
+            typeLabel: getFirstString(record, [
+              "typeLabel",
+              "TypeLabel",
+              "fieldTypeName",
+              "FieldTypeName",
+              "fieldType",
+              "FieldType",
+              "typename",
+              "typeName",
+              "type",
+              "fieldtype"
+            ]) ?? "\u2014"
+          });
+        }
+      }
+      Object.values(record).forEach(visit);
+    };
+    visit(payload);
+    return [...fields.values()].sort(
+      (left, right) => left.displayName.localeCompare(right.displayName, "he")
+    );
+  }
+  function filterCustomFields(fields, query) {
+    const normalizedQuery = query.trim().toLocaleLowerCase("he");
+    if (!normalizedQuery) return fields;
+    return fields.filter(
+      (field) => field.displayName.toLocaleLowerCase("he").includes(normalizedQuery) || field.fieldName.toLocaleLowerCase("he").includes(normalizedQuery)
+    );
+  }
+  function containsApiErrorCode(payload, errorCode) {
+    const visited = /* @__PURE__ */ new Set();
+    const search = (value) => {
+      if (typeof value === "string") return value.trim() === errorCode;
+      if (!value || typeof value !== "object" || visited.has(value)) return false;
+      visited.add(value);
+      if (Array.isArray(value)) return value.some(search);
+      return Object.values(value).some(search);
+    };
+    return search(payload);
+  }
+  function getFirstString(record, keys) {
+    for (const key of keys) {
+      const value = record[key];
+      if (typeof value === "string" && value.trim()) return value.trim();
+      if (typeof value === "number") return String(value);
+    }
+    return null;
+  }
+
   // src/content/pageScript.ts
   (function() {
     if (window.__fireberryPicklistViewerLoaded) return;
@@ -84,10 +207,317 @@
     function labelWithDelay() {
       labelReactSelectOptions();
       labelFieldApiNames();
+      addDeleteShortcutToRecordLayoutEditor();
       requestAnimationFrame(() => {
         labelReactSelectOptions();
         labelFieldApiNames();
+        addDeleteShortcutToRecordLayoutEditor();
       });
+    }
+    function getApiErrorMessage(payload) {
+      if (containsApiErrorCode(payload, "FIELD_IN_FORM")) {
+        return "\u05DC\u05D0 \u05E0\u05D9\u05EA\u05DF \u05DC\u05DE\u05D7\u05D5\u05E7 \u05D0\u05EA \u05D4\u05E9\u05D3\u05D4 \u05DB\u05D9 \u05D4\u05D5\u05D0 \u05DE\u05D5\u05E4\u05D9\u05E2 \u05D1\u05E2\u05DE\u05D5\u05D3 \u05D0\u05D7\u05D3 \u05D0\u05D5 \u05D9\u05D5\u05EA\u05E8. \u05D4\u05E1\u05D9\u05E8\u05D5 \u05D0\u05D5\u05EA\u05D5 \u05DE\u05DB\u05DC \u05D4\u05E2\u05DE\u05D5\u05D3\u05D9\u05DD \u05D5\u05E0\u05E1\u05D5 \u05E9\u05D5\u05D1.";
+      }
+      if (typeof payload === "string" && payload.trim()) {
+        return payload;
+      }
+      if (!payload || typeof payload !== "object") {
+        return "\u05D4\u05DE\u05D7\u05D9\u05E7\u05D4 \u05E0\u05DB\u05E9\u05DC\u05D4. \u05E0\u05E1\u05D5 \u05E9\u05D5\u05D1 \u05D0\u05D5 \u05D1\u05D3\u05E7\u05D5 \u05D0\u05DD \u05D4\u05E9\u05D3\u05D4 \u05E0\u05DE\u05E6\u05D0 \u05D1\u05E9\u05D9\u05DE\u05D5\u05E9 \u05D1\u05DE\u05E2\u05E8\u05DB\u05EA.";
+      }
+      const data = payload;
+      const directMessage = data.Message ?? data.message;
+      if (typeof directMessage === "string" && directMessage.trim()) {
+        return directMessage;
+      }
+      if (data.data && typeof data.data === "object") {
+        const nestedData = data.data;
+        const nestedMessage = nestedData.Message ?? nestedData.message;
+        if (typeof nestedMessage === "string" && nestedMessage.trim()) {
+          return nestedMessage;
+        }
+      }
+      return "\u05DC\u05D0 \u05E0\u05D9\u05EA\u05DF \u05DC\u05DE\u05D7\u05D5\u05E7 \u05D0\u05EA \u05D4\u05E9\u05D3\u05D4. \u05D9\u05D9\u05EA\u05DB\u05DF \u05E9\u05D4\u05D5\u05D0 \u05E0\u05DE\u05E6\u05D0 \u05D1\u05E9\u05D9\u05DE\u05D5\u05E9 \u05D1\u05D8\u05D5\u05E4\u05E1, \u05EA\u05E6\u05D5\u05D2\u05D4, \u05D0\u05D5\u05D8\u05D5\u05DE\u05E6\u05D9\u05D4 \u05D0\u05D5 \u05E9\u05D3\u05D4 \u05D0\u05D7\u05E8.";
+    }
+    async function readResponsePayload(response) {
+      const responseText = await response.text();
+      if (!responseText) return null;
+      try {
+        return JSON.parse(responseText);
+      } catch {
+        return responseText;
+      }
+    }
+    function isSuccessfulResponse(response, payload) {
+      return response.ok && (!payload || typeof payload !== "object" || payload.success !== false);
+    }
+    async function requestFieldDeletion(context) {
+      const params = new URLSearchParams({
+        fieldName: context.fieldName,
+        objectType: String(context.objectType)
+      });
+      const response = await fetch(`/system/SystemField?${params.toString()}`, {
+        method: "DELETE",
+        credentials: "same-origin",
+        headers: { Accept: "application/json" }
+      });
+      const payload = await readResponsePayload(response);
+      return {
+        payload,
+        success: isSuccessfulResponse(response, payload)
+      };
+    }
+    function getCurrentRecordLayoutId() {
+      const match = window.location.pathname.match(/\/app\/record\/108\/([^/?#]+)/i);
+      return match ? decodeURIComponent(match[1]) : null;
+    }
+    async function loadCustomFields() {
+      const recordLayoutId = getCurrentRecordLayoutId();
+      if (!recordLayoutId) throw new Error("\u05DC\u05D0 \u05E0\u05D9\u05EA\u05DF \u05DC\u05D6\u05D4\u05D5\u05EA \u05D0\u05EA \u05E2\u05D5\u05E8\u05DA \u05D4\u05E2\u05DE\u05D5\u05D3 \u05D4\u05E0\u05D5\u05DB\u05D7\u05D9.");
+      const layoutResponse = await fetch(
+        `/api/v3/metadata/record-layout/${encodeURIComponent(recordLayoutId)}`,
+        { credentials: "same-origin", headers: { Accept: "application/json" } }
+      );
+      const layoutPayload = await readResponsePayload(layoutResponse);
+      if (!layoutResponse.ok) throw new Error(getApiErrorMessage(layoutPayload));
+      const objectType = extractRecordFormObjectType(layoutPayload);
+      if (!objectType) throw new Error("\u05DC\u05D0 \u05E0\u05D9\u05EA\u05DF \u05DC\u05D6\u05D4\u05D5\u05EA \u05D0\u05EA \u05E1\u05D5\u05D2 \u05D4\u05D0\u05D5\u05D1\u05D9\u05D9\u05E7\u05D8 \u05E9\u05DC \u05D4\u05E2\u05DE\u05D5\u05D3.");
+      const fieldsResponse = await fetch(
+        `/api/v2/metadata/fields/${objectType}`,
+        createFieldsMetadataRequest()
+      );
+      const fieldsPayload = await readResponsePayload(fieldsResponse);
+      if (!fieldsResponse.ok) throw new Error(getApiErrorMessage(fieldsPayload));
+      return { fields: parseCustomFields(fieldsPayload), objectType };
+    }
+    function createModalButton(label, destructive = false) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = label;
+      button.style.cssText = "height: 38px; padding: 0 18px; border-radius: 4px; cursor: pointer; font: inherit; font-size: 14px; font-weight: 500; " + (destructive ? "border: 1px solid #d32f2f; background: #d32f2f; color: #fff;" : "border: 1px solid #c9cdd1; background: #fff; color: #3e4448;");
+      return button;
+    }
+    function showFieldDeletionPicker() {
+      document.querySelector(".fireberry-field-deletion-picker")?.remove();
+      const overlay = document.createElement("div");
+      overlay.className = "fireberry-field-deletion-picker";
+      overlay.style.cssText = "position: fixed; inset: 0; z-index: 2147483647; display: flex; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; background: rgba(0, 0, 0, 0.42); direction: rtl; font-family: Arial, sans-serif;";
+      const modal = document.createElement("div");
+      modal.setAttribute("role", "dialog");
+      modal.setAttribute("aria-modal", "true");
+      modal.setAttribute("aria-label", "\u05DE\u05D7\u05D9\u05E7\u05EA \u05E9\u05D3\u05D4");
+      modal.style.cssText = "width: min(620px, calc(100vw - 40px)); max-height: calc(100vh - 40px); overflow: auto; box-sizing: border-box; background: #fff; border-radius: 8px; padding: 24px; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.28); color: #2f3437;";
+      const content = document.createElement("div");
+      modal.appendChild(content);
+      overlay.appendChild(modal);
+      document.body.appendChild(overlay);
+      const close = () => overlay.remove();
+      overlay.addEventListener("click", (event) => {
+        if (event.target === overlay) close();
+      });
+      overlay.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") close();
+      });
+      let fields = [];
+      let objectType = 0;
+      let query = "";
+      let selectedFieldName = null;
+      const renderPicker = (notice) => {
+        content.replaceChildren();
+        const title = document.createElement("h2");
+        title.style.cssText = "margin: 0 0 18px; font-size: 22px; font-weight: 600;";
+        title.textContent = "\u05DE\u05D7\u05D9\u05E7\u05EA \u05E9\u05D3\u05D4";
+        const search = document.createElement("input");
+        search.type = "search";
+        search.placeholder = "\u05D7\u05D9\u05E4\u05D5\u05E9 \u05DC\u05E4\u05D9 \u05E9\u05DD \u05D0\u05D5 \u05E9\u05DD API";
+        search.value = query;
+        search.setAttribute("aria-label", "\u05D7\u05D9\u05E4\u05D5\u05E9 \u05E9\u05D3\u05D4");
+        search.style.cssText = "width: 100%; height: 42px; box-sizing: border-box; padding: 0 12px; border: 1px solid #c9cdd1; border-radius: 4px; color: #2f3437; background: #fff; font: inherit; font-size: 14px; outline: none;";
+        const noticeElement = document.createElement("div");
+        noticeElement.setAttribute("role", "status");
+        noticeElement.style.cssText = "display: none; margin: 12px 0 0; padding: 10px 12px; border-radius: 4px; font-size: 13px; line-height: 1.5;";
+        if (notice) {
+          noticeElement.textContent = notice.message;
+          noticeElement.style.display = "block";
+          noticeElement.style.color = notice.success ? "#1b5e20" : "#b71c1c";
+          noticeElement.style.background = notice.success ? "#e8f5e9" : "#ffebee";
+        }
+        const list = document.createElement("div");
+        list.setAttribute("role", "radiogroup");
+        list.setAttribute("aria-label", "\u05E9\u05D3\u05D5\u05EA \u05DE\u05D5\u05EA\u05D0\u05DE\u05D9\u05DD");
+        list.style.cssText = "margin-top: 14px; max-height: 330px; overflow-y: auto; border: 1px solid #d9dcdf; border-radius: 4px; background: #fff;";
+        const continueButton = createModalButton("\u05D4\u05DE\u05E9\u05DA \u05DC\u05DE\u05D7\u05D9\u05E7\u05D4", true);
+        const renderRows = () => {
+          list.replaceChildren();
+          const visibleFields = filterCustomFields(fields, query);
+          if (visibleFields.length === 0) {
+            const empty = document.createElement("div");
+            empty.style.cssText = "padding: 28px 16px; text-align: center; color: #6b7277;";
+            empty.textContent = fields.length === 0 ? "\u05DC\u05D0 \u05E0\u05DE\u05E6\u05D0\u05D5 \u05E9\u05D3\u05D5\u05EA \u05DE\u05D5\u05EA\u05D0\u05DE\u05D9\u05DD." : "\u05DC\u05D0 \u05E0\u05DE\u05E6\u05D0\u05D5 \u05EA\u05D5\u05E6\u05D0\u05D5\u05EA.";
+            list.appendChild(empty);
+          }
+          visibleFields.forEach((field) => {
+            const row = document.createElement("button");
+            row.type = "button";
+            row.setAttribute("role", "radio");
+            row.setAttribute("aria-checked", String(selectedFieldName === field.fieldName));
+            row.style.cssText = `width: 100%; min-height: 62px; box-sizing: border-box; display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 10px 14px; border: 0; border-bottom: 1px solid #e7e9eb; background: ${selectedFieldName === field.fieldName ? "#eef5ff" : "#fff"}; color: #2f3437; text-align: right; cursor: pointer; font: inherit;`;
+            const radio = document.createElement("span");
+            radio.style.cssText = `width: 16px; height: 16px; box-sizing: border-box; border-radius: 50%; border: ${selectedFieldName === field.fieldName ? "5px solid #1976d2" : "1px solid #aeb4b9"};`;
+            const names = document.createElement("span");
+            names.style.cssText = "min-width: 0; display: flex; flex-direction: column; gap: 4px;";
+            const displayName = document.createElement("strong");
+            displayName.style.cssText = "font-size: 14px; font-weight: 500;";
+            displayName.textContent = field.displayName;
+            const apiName = document.createElement("span");
+            apiName.style.cssText = "direction: ltr; text-align: right; color: #6b7277; font: 12px monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;";
+            apiName.textContent = field.fieldName;
+            names.append(displayName, apiName);
+            const type = document.createElement("span");
+            type.style.cssText = "padding: 3px 8px; border-radius: 10px; background: #f0f2f4; color: #5c6368; font-size: 11px; white-space: nowrap;";
+            type.textContent = field.typeLabel;
+            row.append(radio, names, type);
+            row.addEventListener("click", () => {
+              selectedFieldName = field.fieldName;
+              renderRows();
+            });
+            list.appendChild(row);
+          });
+          continueButton.disabled = !selectedFieldName;
+          continueButton.style.opacity = selectedFieldName ? "1" : "0.45";
+          continueButton.style.cursor = selectedFieldName ? "pointer" : "not-allowed";
+        };
+        search.addEventListener("input", () => {
+          query = search.value;
+          renderRows();
+        });
+        const hint = document.createElement("p");
+        hint.style.cssText = "margin: 14px 0 0; color: #6b7277; font-size: 13px;";
+        hint.textContent = "\u05E0\u05D9\u05EA\u05DF \u05DC\u05DE\u05D7\u05D5\u05E7 \u05E8\u05E7 \u05E9\u05D3\u05D4 \u05E9\u05D0\u05D9\u05E0\u05D5 \u05DE\u05D5\u05E4\u05D9\u05E2 \u05D1\u05D0\u05E3 \u05E2\u05DE\u05D5\u05D3.";
+        const actions = document.createElement("div");
+        actions.style.cssText = "display: flex; gap: 10px; margin-top: 20px;";
+        const cancelButton = createModalButton("\u05D1\u05D9\u05D8\u05D5\u05DC");
+        cancelButton.addEventListener("click", close);
+        continueButton.addEventListener("click", () => {
+          const selected = fields.find((field) => field.fieldName === selectedFieldName);
+          if (selected) renderConfirmation(selected);
+        });
+        actions.append(cancelButton, continueButton);
+        content.append(title, search, noticeElement, list, hint, actions);
+        renderRows();
+        search.focus();
+      };
+      const renderConfirmation = (field) => {
+        content.replaceChildren();
+        const title = document.createElement("h2");
+        title.style.cssText = "margin: 0 0 14px; font-size: 22px; font-weight: 600;";
+        title.textContent = "\u05D4\u05D0\u05DD \u05D0\u05EA\u05D4 \u05D1\u05D8\u05D5\u05D7?";
+        const warning = document.createElement("p");
+        warning.style.cssText = "margin: 0; font-size: 14px; line-height: 1.7;";
+        warning.textContent = `\u05D4\u05E4\u05E2\u05D5\u05DC\u05D4 \u05EA\u05DE\u05D7\u05E7 \u05DC\u05E6\u05DE\u05D9\u05EA\u05D5\u05EA \u05D0\u05EA \u05D4\u05E9\u05D3\u05D4 \u201E${field.displayName}\u201D (${field.fieldName}) \u05D5\u05D0\u05EA \u05DB\u05DC \u05D4\u05E0\u05EA\u05D5\u05E0\u05D9\u05DD \u05D4\u05E9\u05DE\u05D5\u05E8\u05D9\u05DD \u05D1\u05D5. \u05DC\u05D0 \u05E0\u05D9\u05EA\u05DF \u05DC\u05D1\u05D8\u05DC \u05D0\u05EA \u05D4\u05E4\u05E2\u05D5\u05DC\u05D4 \u05DC\u05D0\u05D7\u05E8 \u05D4\u05D0\u05D9\u05E9\u05D5\u05E8.`;
+        const errorMessage = document.createElement("div");
+        errorMessage.setAttribute("role", "alert");
+        errorMessage.style.cssText = "display: none; margin-top: 14px; padding: 10px 12px; border-radius: 4px; background: #ffebee; color: #b71c1c; font-size: 13px; line-height: 1.5;";
+        const actions = document.createElement("div");
+        actions.style.cssText = "display: flex; gap: 10px; margin-top: 22px;";
+        const noButton = createModalButton("\u05DC\u05D0");
+        const confirmButton = createModalButton("\u05DB\u05DF, \u05DE\u05D7\u05E7 \u05D0\u05EA \u05D4\u05E9\u05D3\u05D4", true);
+        noButton.addEventListener("click", () => renderPicker());
+        confirmButton.addEventListener("click", async () => {
+          if (confirmButton.disabled) return;
+          confirmButton.disabled = true;
+          confirmButton.textContent = "\u05DE\u05D5\u05D7\u05E7\u2026";
+          confirmButton.style.cursor = "wait";
+          noButton.disabled = true;
+          errorMessage.style.display = "none";
+          try {
+            const result = await requestFieldDeletion({
+              fieldName: field.fieldName,
+              objectType
+            });
+            if (!result.success) throw new Error(getApiErrorMessage(result.payload));
+            fields = fields.filter((candidate) => candidate.fieldName !== field.fieldName);
+            selectedFieldName = null;
+            query = "";
+            renderPicker({ message: `\u05D4\u05E9\u05D3\u05D4 \u201E${field.displayName}\u201D \u05E0\u05DE\u05D7\u05E7 \u05D1\u05D4\u05E6\u05DC\u05D7\u05D4.`, success: true });
+          } catch (error) {
+            errorMessage.textContent = error instanceof Error ? error.message : "\u05D4\u05DE\u05D7\u05D9\u05E7\u05D4 \u05E0\u05DB\u05E9\u05DC\u05D4. \u05E0\u05E1\u05D5 \u05E9\u05D5\u05D1.";
+            errorMessage.style.display = "block";
+            confirmButton.disabled = false;
+            confirmButton.textContent = "\u05DB\u05DF, \u05DE\u05D7\u05E7 \u05D0\u05EA \u05D4\u05E9\u05D3\u05D4";
+            confirmButton.style.cursor = "pointer";
+            noButton.disabled = false;
+          }
+        });
+        actions.append(noButton, confirmButton);
+        content.append(title, warning, errorMessage, actions);
+        noButton.focus();
+      };
+      const loadingTitle = document.createElement("h2");
+      loadingTitle.style.cssText = "margin: 0 0 14px; font-size: 22px; font-weight: 600;";
+      loadingTitle.textContent = "\u05DE\u05D7\u05D9\u05E7\u05EA \u05E9\u05D3\u05D4";
+      const loading = document.createElement("p");
+      loading.style.cssText = "margin: 0; color: #6b7277; font-size: 14px;";
+      loading.textContent = "\u05D8\u05D5\u05E2\u05DF \u05E9\u05D3\u05D5\u05EA \u05DE\u05D5\u05EA\u05D0\u05DE\u05D9\u05DD\u2026";
+      content.append(loadingTitle, loading);
+      loadCustomFields().then((result) => {
+        fields = result.fields;
+        objectType = result.objectType;
+        renderPicker();
+      }).catch((error) => {
+        content.replaceChildren();
+        const title = document.createElement("h2");
+        title.style.cssText = "margin: 0 0 14px; font-size: 22px; font-weight: 600;";
+        title.textContent = "\u05DC\u05D0 \u05E0\u05D9\u05EA\u05DF \u05DC\u05D8\u05E2\u05D5\u05DF \u05D0\u05EA \u05D4\u05E9\u05D3\u05D5\u05EA";
+        const message = document.createElement("p");
+        message.setAttribute("role", "alert");
+        message.style.cssText = "margin: 0 0 20px; color: #b71c1c; line-height: 1.5;";
+        message.textContent = error instanceof Error ? error.message : "\u05D0\u05D9\u05E8\u05E2\u05D4 \u05E9\u05D2\u05D9\u05D0\u05D4 \u05DC\u05D0 \u05E6\u05E4\u05D5\u05D9\u05D4.";
+        const closeButton = createModalButton("\u05E1\u05D2\u05D9\u05E8\u05D4");
+        closeButton.addEventListener("click", close);
+        content.append(title, message, closeButton);
+        closeButton.focus();
+      });
+    }
+    function findRecordLayoutToolbar() {
+      const saveButton = Array.from(document.querySelectorAll("button")).find(
+        (button) => button.textContent?.trim() === "\u05E9\u05DE\u05D5\u05E8" && !button.closest('[role="dialog"]') && button.getClientRects().length > 0
+      );
+      if (!saveButton) return null;
+      let candidate = saveButton.parentElement;
+      for (let depth = 0; candidate && depth < 7; depth += 1) {
+        const rect = candidate.getBoundingClientRect();
+        if (rect.width > 500 && rect.height >= 36 && rect.height <= 120) return candidate;
+        candidate = candidate.parentElement;
+      }
+      return null;
+    }
+    function addDeleteShortcutToRecordLayoutEditor() {
+      const existingButton = document.querySelector(".fireberry-record-layout-delete-button");
+      if (!isEnabled || !getCurrentRecordLayoutId()) {
+        existingButton?.remove();
+        return;
+      }
+      if (existingButton) return;
+      const toolbar = findRecordLayoutToolbar();
+      if (!toolbar) return;
+      const deleteButton = document.createElement("button");
+      deleteButton.type = "button";
+      deleteButton.className = "fireberry-record-layout-delete-button";
+      deleteButton.textContent = "\u05DE\u05D7\u05D9\u05E7\u05EA \u05E9\u05D3\u05D4";
+      deleteButton.title = "\u05D1\u05D7\u05D9\u05E8\u05EA \u05E9\u05D3\u05D4 \u05DE\u05D5\u05EA\u05D0\u05DD \u05DC\u05DE\u05D7\u05D9\u05E7\u05D4";
+      deleteButton.style.cssText = "height: 34px; padding: 0 16px; margin-inline-start: 56px; border: 1px solid #d32f2f; border-radius: 4px; background: #fff; color: #c62828; cursor: pointer; font: inherit; font-size: 13px; font-weight: 500; flex-shrink: 0;";
+      deleteButton.addEventListener("mouseenter", () => {
+        deleteButton.style.background = "#fff3f3";
+      });
+      deleteButton.addEventListener("mouseleave", () => {
+        deleteButton.style.background = "#fff";
+      });
+      deleteButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        showFieldDeletionPicker();
+      });
+      toolbar.appendChild(deleteButton);
     }
     function getFieldApiName(element) {
       const reactKey = Object.keys(element).find(
@@ -221,6 +651,8 @@
       document.querySelectorAll(".fireberry-copy-api-button").forEach((button) => {
         button.remove();
       });
+      document.querySelector(".fireberry-record-layout-delete-button")?.remove();
+      document.querySelector(".fireberry-field-deletion-picker")?.remove();
       document.querySelectorAll("[data-value-labeled]").forEach((el) => {
         delete el.dataset.valueLabeled;
       });
