@@ -18,12 +18,13 @@ A Chrome extension that enhances Fireberry CRM by displaying API field names and
 - Visual feedback when copied (icon turns green)
 - Appears instantly with no delay using MutationObserver
 
-### 🗑️ Delete Custom Fields from the Editor
-- Adds a delete button directly to Fireberry's field settings dialog
-- Keeps the destructive action on the opposite side of the Save/Cancel buttons
-- Requires typing `מחיקה` before the delete action becomes available
-- Uses Fireberry's own field deletion endpoint and reloads the editor after success
-- Only appears for custom fields whose API name starts with `pcf`
+### 🗑️ Delete Custom Fields from the Page Editor
+- Adds a separated **Delete Field** shortcut to Fireberry's page-layout editor
+- Opens a searchable list of the current object's custom fields (`pcf...`)
+- Shows each field's display name, API name, and type before selection
+- Requires a clear yes/no confirmation before permanently deleting the field
+- Uses Fireberry's own dependency checks and never removes fields from page layouts automatically
+- If Fireberry returns `FIELD_IN_FORM`, explains that the field must first be removed from every page
 
 ### 🎯 Picklist Value Display
 - Automatically displays underlying picklist option values
@@ -82,7 +83,8 @@ A Chrome extension that enhances Fireberry CRM by displaying API field names and
    - **Edit** Edit field
 4. Click the **< >** button to copy the API name to clipboard
 5. Open picklist dropdowns to see the underlying values with color-coded badges
-6. Use the extension popup to toggle features on/off
+6. In the page-layout editor, use **Delete Field** to search for and safely delete an unused custom field
+7. Use the extension popup to toggle features on/off
 
 ## How It Works
 
