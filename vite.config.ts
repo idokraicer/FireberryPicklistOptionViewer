@@ -21,6 +21,7 @@ function pageScriptPlugin(): Plugin {
       write: false,
       format: 'iife',
       target: 'es2020',
+      charset: 'utf8',
     });
     return result.outputFiles[0].text;
   }

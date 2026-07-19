@@ -3,9 +3,6 @@ node_modules/
 
 # Build output
 dist/
-public/*
-!public/icons/
-!public/icons/**
 
 # IDE
 .idea/
