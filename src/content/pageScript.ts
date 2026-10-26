@@ -6,10 +6,14 @@
 import {
   containsApiErrorCode,
   createFieldsMetadataRequest,
+  extractFieldDependencies,
   extractRecordFormObjectType,
   filterCustomFields,
+  getShortUserFacingMessage,
+  normalizeFieldTypeForApi,
   parseCustomFields,
   type CustomField,
+  type FieldDependency,
 } from './fieldDeletion';
 
 export {}; // Make this a module
@@ -34,6 +38,7 @@ declare global {
 
   interface EditableFieldContext {
     fieldName: string;
+    fieldType: string;
     objectType: number;
   }
 
@@ -179,9 +184,8 @@ declare global {
       return 'לא ניתן למחוק את השדה כי הוא מופיע בעמוד אחד או יותר. הסירו אותו מכל העמודים ונסו שוב.';
     }
 
-    if (typeof payload === 'string' && payload.trim()) {
-      return payload;
-    }
+    const userFacingMessage = getShortUserFacingMessage(payload);
+    if (userFacingMessage) return userFacingMessage;
 
     if (!payload || typeof payload !== 'object') {
       return 'המחיקה נכשלה. נסו שוב או בדקו אם השדה נמצא בשימוש במערכת.';
@@ -225,6 +229,26 @@ declare global {
   }
 
   async function requestFieldDeletion(context: EditableFieldContext): Promise<ApiResult> {
+    const fieldType = normalizeFieldTypeForApi(context.fieldType);
+    if (fieldType) {
+      const officialResponse = await fetch(
+        `/api/v2/system-field/${context.objectType}/${encodeURIComponent(fieldType)}/${encodeURIComponent(context.fieldName)}`,
+        {
+          method: 'DELETE',
+          credentials: 'same-origin',
+          headers: { Accept: 'application/json' },
+        }
+      );
+      const officialPayload = await readResponsePayload(officialResponse);
+
+      if (officialResponse.status !== 404 && officialResponse.status !== 405) {
+        return {
+          payload: officialPayload,
+          success: isSuccessfulResponse(officialResponse, officialPayload),
+        };
+      }
+    }
+
     const params = new URLSearchParams({
       fieldName: context.fieldName,
       objectType: String(context.objectType),
@@ -427,7 +451,7 @@ declare global {
 
       const hint = document.createElement('p');
       hint.style.cssText = 'margin: 14px 0 0; color: #6b7277; font-size: 13px;';
-      hint.textContent = 'ניתן למחוק רק שדה שאינו מופיע באף עמוד.';
+      hint.textContent = 'ניתן למחוק רק שדה שאינו נמצא בשימוש בעמוד, תצוגה, אוטומציה או רכיב אחר.';
 
       const actions = document.createElement('div');
       actions.style.cssText = 'display: flex; gap: 10px; margin-top: 20px;';
@@ -463,6 +487,72 @@ declare global {
         'display: none; margin-top: 14px; padding: 10px 12px; border-radius: 4px; ' +
         'background: #ffebee; color: #b71c1c; font-size: 13px; line-height: 1.5;';
 
+      const showDeletionFailure = (payload: unknown) => {
+        const dependencies = extractFieldDependencies(payload, objectType);
+        errorMessage.replaceChildren();
+
+        if (dependencies.length === 0) {
+          errorMessage.textContent = getApiErrorMessage(payload);
+          errorMessage.style.display = 'block';
+          return;
+        }
+
+        const heading = document.createElement('strong');
+        heading.textContent = `השדה נמצא בשימוש ב־${dependencies.length} מקומות:`;
+        errorMessage.appendChild(heading);
+
+        const labels: Record<FieldDependency['kind'], string> = {
+          page: 'עמודים',
+          view: 'תצוגות ומסננים',
+          automation: 'אוטומציות',
+          field: 'שדות ונוסחאות',
+          dashboard: 'דשבורדים ורכיבים',
+        };
+
+        for (const kind of Object.keys(labels) as FieldDependency['kind'][]) {
+          const matchingDependencies = dependencies.filter(
+            (dependency) => dependency.kind === kind
+          );
+          if (matchingDependencies.length === 0) continue;
+
+          const section = document.createElement('div');
+          section.style.cssText = 'margin-top: 10px;';
+          const sectionTitle = document.createElement('div');
+          sectionTitle.style.cssText = 'font-weight: 600;';
+          sectionTitle.textContent = labels[kind];
+          const list = document.createElement('ul');
+          list.style.cssText = 'margin: 4px 0 0; padding-inline-start: 20px;';
+
+          for (const dependency of matchingDependencies) {
+            const item = document.createElement('li');
+            item.style.cssText = 'margin-top: 4px;';
+            const name = document.createElement('span');
+            name.textContent = dependency.name;
+            item.appendChild(name);
+
+            if (dependency.url) {
+              const link = document.createElement('a');
+              link.href = dependency.url;
+              link.target = '_blank';
+              link.rel = 'noopener noreferrer';
+              link.style.cssText = 'margin-inline-start: 8px; color: #1565c0;';
+              link.textContent = 'פתח';
+              item.appendChild(link);
+            }
+            list.appendChild(item);
+          }
+
+          section.append(sectionTitle, list);
+          errorMessage.appendChild(section);
+        }
+
+        const retryHint = document.createElement('div');
+        retryHint.style.cssText = 'margin-top: 12px;';
+        retryHint.textContent = 'לאחר הסרת השדה מהמקומות האלה, חזרו לכאן ונסו למחוק שוב.';
+        errorMessage.appendChild(retryHint);
+        errorMessage.style.display = 'block';
+      };
+
       const actions = document.createElement('div');
       actions.style.cssText = 'display: flex; gap: 10px; margin-top: 22px;';
       const noButton = createModalButton('לא');
@@ -480,9 +570,17 @@ declare global {
         try {
           const result = await requestFieldDeletion({
             fieldName: field.fieldName,
+            fieldType: field.apiType ?? field.typeLabel,
             objectType,
           });
-          if (!result.success) throw new Error(getApiErrorMessage(result.payload));
+          if (!result.success) {
+            showDeletionFailure(result.payload);
+            confirmButton.disabled = false;
+            confirmButton.textContent = 'בדוק שוב ונסה למחוק';
+            confirmButton.style.cursor = 'pointer';
+            noButton.disabled = false;
+            return;
+          }
 
           fields = fields.filter((candidate) => candidate.fieldName !== field.fieldName);
           selectedFieldName = null;

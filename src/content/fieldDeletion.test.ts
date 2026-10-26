@@ -2,11 +2,22 @@ import { expect, test } from 'bun:test';
 import {
   containsApiErrorCode,
   createFieldsMetadataRequest,
+  extractFieldDependencies,
   extractRecordFormObjectType,
   filterCustomFields,
+  getShortUserFacingMessage,
+  normalizeFieldTypeForApi,
   parseCustomFields,
 } from './fieldDeletion';
 
+test('accepts only short plain-text API messages for display', () => {
+  expect(getShortUserFacingMessage('  Field cannot be deleted.  ')).toBe(
+    'Field cannot be deleted.'
+  );
+  expect(getShortUserFacingMessage('<html><body>Bad Gateway</body></html>')).toBeNull();
+  expect(getShortUserFacingMessage('x'.repeat(241))).toBeNull();
+  expect(getShortUserFacingMessage('Error\u0000details')).toBeNull();
+});
 test('requests object field metadata with Fireberry POST contract', () => {
   const request = createFieldsMetadataRequest();
 
@@ -49,9 +60,24 @@ test('normalizes and deduplicates custom fields from nested metadata', () => {
   });
 
   expect(fields).toEqual([
-    { fieldName: 'PCF_PLAN', displayName: 'סוג מסלול', typeLabel: 'picklist' },
-    { fieldName: 'pcf_score', displayName: 'ציון', typeLabel: 'number' },
-    { fieldName: 'pcf_renewaldate', displayName: 'תאריך חידוש', typeLabel: 'date' },
+    {
+      fieldName: 'PCF_PLAN',
+      displayName: 'סוג מסלול',
+      typeLabel: 'picklist',
+      apiType: 'picklist',
+    },
+    {
+      fieldName: 'pcf_score',
+      displayName: 'ציון',
+      typeLabel: 'number',
+      apiType: 'number',
+    },
+    {
+      fieldName: 'pcf_renewaldate',
+      displayName: 'תאריך חידוש',
+      typeLabel: 'date',
+      apiType: 'date',
+    },
   ]);
 });
 
@@ -77,4 +103,52 @@ test('detects FIELD_IN_FORM in nested Fireberry error payloads', () => {
   expect(containsApiErrorCode({ Message: 'FIELD_IN_VIEW' }, 'FIELD_IN_FORM')).toBe(
     false
   );
+});
+
+test('normalizes Fireberry field types for the official delete endpoint', () => {
+  expect(normalizeFieldTypeForApi('Long Text')).toBe('textarea');
+  expect(normalizeFieldTypeForApi('Dropdown')).toBe('picklist');
+  expect(normalizeFieldTypeForApi('telephone')).toBe('phone');
+  expect(normalizeFieldTypeForApi('unknown type')).toBeNull();
+});
+
+test('extracts and links structured Fireberry field dependencies', () => {
+  const dependencies = extractFieldDependencies(
+    {
+      data: {
+        forms: [
+          {
+            formName: 'עמוד לקוח ראשי',
+            recordLayoutId: 'layout-1',
+          },
+        ],
+        views: [{ viewName: 'לקוחות פעילים', viewSchemaId: 'view-1' }],
+        automations: [
+          {
+            ruleName: 'יצירת משימת מעקב',
+            wfruleid: 'rule-1',
+          },
+        ],
+      },
+    },
+    1
+  );
+
+  expect(dependencies).toEqual([
+    {
+      kind: 'page',
+      name: 'עמוד לקוח ראשי',
+      url: '/app/record/108/layout-1',
+    },
+    {
+      kind: 'view',
+      name: 'לקוחות פעילים',
+      url: '/app/views/1/view-1',
+    },
+    {
+      kind: 'automation',
+      name: 'יצירת משימת מעקב',
+      url: '/app/record/55/rule-1',
+    },
+  ]);
 });
