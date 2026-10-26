@@ -1,5 +1,300 @@
 "use strict";
 (() => {
+  // src/content/fieldDeletion.ts
+  function getShortUserFacingMessage(value) {
+    if (typeof value !== "string") return null;
+    const message = value.trim();
+    if (!message || message.length > 240) return null;
+    if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(message)) return null;
+    if (/<(?:!doctype|html|head|body|script|style|title)\b/i.test(message)) return null;
+    return message;
+  }
+  function createFieldsMetadataRequest() {
+    return {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json"
+      },
+      body: "{}"
+    };
+  }
+  function extractRecordFormObjectType(payload) {
+    const visited = /* @__PURE__ */ new Set();
+    const search = (value) => {
+      if (!value || typeof value !== "object" || visited.has(value)) return null;
+      visited.add(value);
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          const result = search(item);
+          if (result) return result;
+        }
+        return null;
+      }
+      const record = value;
+      if (record.name === "RecordForm" && record.props && typeof record.props === "object") {
+        const props = record.props;
+        const objectType = Number(props.objectType ?? props.ObjectType);
+        if (Number.isInteger(objectType) && objectType > 0) return objectType;
+      }
+      for (const nested of Object.values(record)) {
+        const result = search(nested);
+        if (result) return result;
+      }
+      return null;
+    };
+    return search(payload);
+  }
+  function parseCustomFields(payload) {
+    const fields = /* @__PURE__ */ new Map();
+    const visited = /* @__PURE__ */ new Set();
+    const visit = (value) => {
+      if (!value || typeof value !== "object" || visited.has(value)) return;
+      visited.add(value);
+      if (Array.isArray(value)) {
+        value.forEach(visit);
+        return;
+      }
+      const record = value;
+      const fieldName = getFirstString(record, [
+        "fieldname",
+        "fieldName",
+        "FieldName",
+        "systemName",
+        "SystemName"
+      ]);
+      if (fieldName?.toLowerCase().startsWith("pcf")) {
+        const key = fieldName.toLowerCase();
+        if (!fields.has(key)) {
+          const apiType = getFirstString(record, [
+            "typename",
+            "typeName",
+            "TypeName",
+            "fieldTypeName",
+            "FieldTypeName",
+            "fieldtype",
+            "fieldType",
+            "FieldType",
+            "type",
+            "Type"
+          ]);
+          fields.set(key, {
+            fieldName,
+            displayName: getFirstString(record, [
+              "displayName",
+              "DisplayName",
+              "fieldlabel",
+              "fieldLabel",
+              "FieldLabel",
+              "label",
+              "Label",
+              "title",
+              "Title",
+              "name",
+              "Name"
+            ]) ?? fieldName,
+            typeLabel: getFirstString(record, [
+              "typeLabel",
+              "TypeLabel",
+              "fieldTypeName",
+              "FieldTypeName",
+              "fieldType",
+              "FieldType",
+              "typename",
+              "typeName",
+              "type",
+              "fieldtype"
+            ]) ?? "—",
+            ...apiType ? { apiType } : {}
+          });
+        }
+      }
+      Object.values(record).forEach(visit);
+    };
+    visit(payload);
+    return [...fields.values()].sort(
+      (left, right) => left.displayName.localeCompare(right.displayName, "he")
+    );
+  }
+  function filterCustomFields(fields, query) {
+    const normalizedQuery = query.trim().toLocaleLowerCase("he");
+    if (!normalizedQuery) return fields;
+    return fields.filter(
+      (field) => field.displayName.toLocaleLowerCase("he").includes(normalizedQuery) || field.fieldName.toLocaleLowerCase("he").includes(normalizedQuery)
+    );
+  }
+  function containsApiErrorCode(payload, errorCode) {
+    const visited = /* @__PURE__ */ new Set();
+    const search = (value) => {
+      if (typeof value === "string") return value.trim() === errorCode;
+      if (!value || typeof value !== "object" || visited.has(value)) return false;
+      visited.add(value);
+      if (Array.isArray(value)) return value.some(search);
+      return Object.values(value).some(search);
+    };
+    return search(payload);
+  }
+  function normalizeFieldTypeForApi(typeLabel) {
+    const normalized = typeLabel.trim().toLowerCase().replace(/[\s_-]+/g, "");
+    const aliases = {
+      text: "text",
+      string: "text",
+      textarea: "textarea",
+      longtext: "textarea",
+      number: "number",
+      numeric: "number",
+      picklist: "picklist",
+      dropdown: "picklist",
+      lookup: "lookup",
+      formula: "formula",
+      summary: "summary",
+      rollup: "summary",
+      email: "email",
+      url: "url",
+      phone: "phone",
+      telephone: "phone",
+      date: "date",
+      datetime: "datetime",
+      html: "html"
+    };
+    return aliases[normalized] ?? null;
+  }
+  function extractFieldDependencies(payload, objectType) {
+    const dependencies = /* @__PURE__ */ new Map();
+    const visited = /* @__PURE__ */ new Set();
+    const addDependency = (kind, name, record) => {
+      const trimmedName = name.trim();
+      if (!trimmedName || trimmedName.length > 240 || /^[A-Z][A-Z0-9_]+$/.test(trimmedName)) {
+        return;
+      }
+      const id = record ? getDependencyId(record, kind) : null;
+      const explicitUrl = record ? getSafeFireberryUrl(record) : null;
+      const generatedUrl = id ? getDependencyUrl(kind, id, objectType) : null;
+      const dependency = {
+        kind,
+        name: trimmedName,
+        ...explicitUrl || generatedUrl ? { url: explicitUrl ?? generatedUrl ?? void 0 } : {}
+      };
+      dependencies.set(`${kind}:${trimmedName.toLowerCase()}:${id ?? ""}`, dependency);
+    };
+    const visit = (value, inheritedKind) => {
+      if (!value || typeof value !== "object" || visited.has(value)) return;
+      visited.add(value);
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          if (typeof item === "string" && inheritedKind) addDependency(inheritedKind, item);
+          else visit(item, inheritedKind);
+        }
+        return;
+      }
+      const record = value;
+      const kind = getDependencyKind(record) ?? inheritedKind;
+      const name = getDependencyName(record);
+      if (kind && name) addDependency(kind, name, record);
+      for (const [key, nested] of Object.entries(record)) {
+        visit(nested, dependencyKindFromText(key) ?? kind);
+      }
+    };
+    visit(payload, null);
+    return [...dependencies.values()];
+  }
+  function getDependencyKind(record) {
+    const discriminatorKeys = [
+      "type",
+      "dependencyType",
+      "usageType",
+      "entityType",
+      "objectTypeName",
+      "category"
+    ];
+    for (const key of discriminatorKeys) {
+      const value = getCaseInsensitiveValue(record, key);
+      if (typeof value === "string") {
+        const kind = dependencyKindFromText(value);
+        if (kind) return kind;
+      }
+    }
+    return dependencyKindFromText(Object.keys(record).join(" "));
+  }
+  function dependencyKindFromText(value) {
+    const normalized = value.toLowerCase().replace(/[\s_-]+/g, "");
+    if (/recordlayout|layout|form|page|עמוד|טופס/.test(normalized)) return "page";
+    if (/view|filter|תצוג|מסנן/.test(normalized)) return "view";
+    if (/automation|workflow|businessrule|אוטומ/.test(normalized)) return "automation";
+    if (/dashboard|widget|דשבורד|ווידג/.test(normalized)) return "dashboard";
+    if (/formula|summary|rollup|field|נוסח|סיכום|שדה/.test(normalized)) return "field";
+    return null;
+  }
+  function getDependencyName(record) {
+    const keys = [
+      "name",
+      "entityName",
+      "usageName",
+      "displayName",
+      "title",
+      "label",
+      "formName",
+      "pageName",
+      "layoutName",
+      "viewName",
+      "ruleName",
+      "automationName",
+      "fieldLabel",
+      "widgetName"
+    ];
+    for (const key of keys) {
+      const value = getCaseInsensitiveValue(record, key);
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
+    return null;
+  }
+  function getDependencyId(record, kind) {
+    const keysByKind = {
+      page: ["recordLayoutId", "layoutId", "formId", "pageId", "id"],
+      view: ["viewSchemaId", "viewId", "id"],
+      automation: ["wfruleid", "ruleId", "automationId", "id"],
+      field: ["fieldId", "id"],
+      dashboard: ["dashboardId", "widgetId", "id"]
+    };
+    for (const key of keysByKind[kind]) {
+      const value = getCaseInsensitiveValue(record, key);
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
+    return null;
+  }
+  function getSafeFireberryUrl(record) {
+    for (const key of ["url", "link", "editUrl"]) {
+      const value = getCaseInsensitiveValue(record, key);
+      if (typeof value !== "string") continue;
+      if (value.startsWith("/app/") || /^https:\/\/app\.fireberry\.com\/app\//i.test(value)) {
+        return value;
+      }
+    }
+    return null;
+  }
+  function getDependencyUrl(kind, id, objectType) {
+    const encodedId = encodeURIComponent(id);
+    if (kind === "page") return `/app/record/108/${encodedId}`;
+    if (kind === "automation") return `/app/record/55/${encodedId}`;
+    if (kind === "view") return `/app/views/${objectType}/${encodedId}`;
+    return null;
+  }
+  function getCaseInsensitiveValue(record, key) {
+    const matchingKey = Object.keys(record).find(
+      (candidate) => candidate.toLowerCase() === key.toLowerCase()
+    );
+    return matchingKey ? record[matchingKey] : void 0;
+  }
+  function getFirstString(record, keys) {
+    for (const key of keys) {
+      const value = record[key];
+      if (typeof value === "string" && value.trim()) return value.trim();
+      if (typeof value === "number") return String(value);
+    }
+    return null;
+  }
+
   // src/content/pageScript.ts
   (function() {
     if (window.__fireberryPicklistViewerLoaded) return;
@@ -84,10 +379,398 @@
     function labelWithDelay() {
       labelReactSelectOptions();
       labelFieldApiNames();
+      addDeleteShortcutToRecordLayoutEditor();
       requestAnimationFrame(() => {
         labelReactSelectOptions();
         labelFieldApiNames();
+        addDeleteShortcutToRecordLayoutEditor();
       });
+    }
+    function getApiErrorMessage(payload) {
+      if (containsApiErrorCode(payload, "FIELD_IN_FORM")) {
+        return "לא ניתן למחוק את השדה כי הוא מופיע בעמוד אחד או יותר. הסירו אותו מכל העמודים ונסו שוב.";
+      }
+      const userFacingMessage = getShortUserFacingMessage(payload);
+      if (userFacingMessage) return userFacingMessage;
+      if (!payload || typeof payload !== "object") {
+        return "המחיקה נכשלה. נסו שוב או בדקו אם השדה נמצא בשימוש במערכת.";
+      }
+      const data = payload;
+      const directMessage = data.Message ?? data.message;
+      if (typeof directMessage === "string" && directMessage.trim()) {
+        return directMessage;
+      }
+      if (data.data && typeof data.data === "object") {
+        const nestedData = data.data;
+        const nestedMessage = nestedData.Message ?? nestedData.message;
+        if (typeof nestedMessage === "string" && nestedMessage.trim()) {
+          return nestedMessage;
+        }
+      }
+      return "לא ניתן למחוק את השדה. ייתכן שהוא נמצא בשימוש בטופס, תצוגה, אוטומציה או שדה אחר.";
+    }
+    async function readResponsePayload(response) {
+      const responseText = await response.text();
+      if (!responseText) return null;
+      try {
+        return JSON.parse(responseText);
+      } catch {
+        return responseText;
+      }
+    }
+    function isSuccessfulResponse(response, payload) {
+      return response.ok && (!payload || typeof payload !== "object" || payload.success !== false);
+    }
+    async function requestFieldDeletion(context) {
+      const fieldType = normalizeFieldTypeForApi(context.fieldType);
+      if (fieldType) {
+        const officialResponse = await fetch(
+          `/api/v2/system-field/${context.objectType}/${encodeURIComponent(fieldType)}/${encodeURIComponent(context.fieldName)}`,
+          {
+            method: "DELETE",
+            credentials: "same-origin",
+            headers: { Accept: "application/json" }
+          }
+        );
+        const officialPayload = await readResponsePayload(officialResponse);
+        if (officialResponse.status !== 404 && officialResponse.status !== 405) {
+          return {
+            payload: officialPayload,
+            success: isSuccessfulResponse(officialResponse, officialPayload)
+          };
+        }
+      }
+      const params = new URLSearchParams({
+        fieldName: context.fieldName,
+        objectType: String(context.objectType)
+      });
+      const response = await fetch(`/system/SystemField?${params.toString()}`, {
+        method: "DELETE",
+        credentials: "same-origin",
+        headers: { Accept: "application/json" }
+      });
+      const payload = await readResponsePayload(response);
+      return {
+        payload,
+        success: isSuccessfulResponse(response, payload)
+      };
+    }
+    function getCurrentRecordLayoutId() {
+      const match = window.location.pathname.match(/\/app\/record\/108\/([^/?#]+)/i);
+      return match ? decodeURIComponent(match[1]) : null;
+    }
+    async function loadCustomFields() {
+      const recordLayoutId = getCurrentRecordLayoutId();
+      if (!recordLayoutId) throw new Error("לא ניתן לזהות את עורך העמוד הנוכחי.");
+      const layoutResponse = await fetch(
+        `/api/v3/metadata/record-layout/${encodeURIComponent(recordLayoutId)}`,
+        { credentials: "same-origin", headers: { Accept: "application/json" } }
+      );
+      const layoutPayload = await readResponsePayload(layoutResponse);
+      if (!layoutResponse.ok) throw new Error(getApiErrorMessage(layoutPayload));
+      const objectType = extractRecordFormObjectType(layoutPayload);
+      if (!objectType) throw new Error("לא ניתן לזהות את סוג האובייקט של העמוד.");
+      const fieldsResponse = await fetch(
+        `/api/v2/metadata/fields/${objectType}`,
+        createFieldsMetadataRequest()
+      );
+      const fieldsPayload = await readResponsePayload(fieldsResponse);
+      if (!fieldsResponse.ok) throw new Error(getApiErrorMessage(fieldsPayload));
+      return { fields: parseCustomFields(fieldsPayload), objectType };
+    }
+    function createModalButton(label, destructive = false) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = label;
+      button.style.cssText = "height: 38px; padding: 0 18px; border-radius: 4px; cursor: pointer; font: inherit; font-size: 14px; font-weight: 500; " + (destructive ? "border: 1px solid #d32f2f; background: #d32f2f; color: #fff;" : "border: 1px solid #c9cdd1; background: #fff; color: #3e4448;");
+      return button;
+    }
+    function showFieldDeletionPicker() {
+      document.querySelector(".fireberry-field-deletion-picker")?.remove();
+      const overlay = document.createElement("div");
+      overlay.className = "fireberry-field-deletion-picker";
+      overlay.style.cssText = "position: fixed; inset: 0; z-index: 2147483647; display: flex; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; background: rgba(0, 0, 0, 0.42); direction: rtl; font-family: Arial, sans-serif;";
+      const modal = document.createElement("div");
+      modal.setAttribute("role", "dialog");
+      modal.setAttribute("aria-modal", "true");
+      modal.setAttribute("aria-label", "מחיקת שדה");
+      modal.style.cssText = "width: min(620px, calc(100vw - 40px)); max-height: calc(100vh - 40px); overflow: auto; box-sizing: border-box; background: #fff; border-radius: 8px; padding: 24px; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.28); color: #2f3437;";
+      const content = document.createElement("div");
+      modal.appendChild(content);
+      overlay.appendChild(modal);
+      document.body.appendChild(overlay);
+      const close = () => overlay.remove();
+      overlay.addEventListener("click", (event) => {
+        if (event.target === overlay) close();
+      });
+      overlay.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") close();
+      });
+      let fields = [];
+      let objectType = 0;
+      let query = "";
+      let selectedFieldName = null;
+      const renderPicker = (notice) => {
+        content.replaceChildren();
+        const title = document.createElement("h2");
+        title.style.cssText = "margin: 0 0 18px; font-size: 22px; font-weight: 600;";
+        title.textContent = "מחיקת שדה";
+        const search = document.createElement("input");
+        search.type = "search";
+        search.placeholder = "חיפוש לפי שם או שם API";
+        search.value = query;
+        search.setAttribute("aria-label", "חיפוש שדה");
+        search.style.cssText = "width: 100%; height: 42px; box-sizing: border-box; padding: 0 12px; border: 1px solid #c9cdd1; border-radius: 4px; color: #2f3437; background: #fff; font: inherit; font-size: 14px; outline: none;";
+        const noticeElement = document.createElement("div");
+        noticeElement.setAttribute("role", "status");
+        noticeElement.style.cssText = "display: none; margin: 12px 0 0; padding: 10px 12px; border-radius: 4px; font-size: 13px; line-height: 1.5;";
+        if (notice) {
+          noticeElement.textContent = notice.message;
+          noticeElement.style.display = "block";
+          noticeElement.style.color = notice.success ? "#1b5e20" : "#b71c1c";
+          noticeElement.style.background = notice.success ? "#e8f5e9" : "#ffebee";
+        }
+        const list = document.createElement("div");
+        list.setAttribute("role", "radiogroup");
+        list.setAttribute("aria-label", "שדות מותאמים");
+        list.style.cssText = "margin-top: 14px; max-height: 330px; overflow-y: auto; border: 1px solid #d9dcdf; border-radius: 4px; background: #fff;";
+        const continueButton = createModalButton("המשך למחיקה", true);
+        const renderRows = () => {
+          list.replaceChildren();
+          const visibleFields = filterCustomFields(fields, query);
+          if (visibleFields.length === 0) {
+            const empty = document.createElement("div");
+            empty.style.cssText = "padding: 28px 16px; text-align: center; color: #6b7277;";
+            empty.textContent = fields.length === 0 ? "לא נמצאו שדות מותאמים." : "לא נמצאו תוצאות.";
+            list.appendChild(empty);
+          }
+          visibleFields.forEach((field) => {
+            const row = document.createElement("button");
+            row.type = "button";
+            row.setAttribute("role", "radio");
+            row.setAttribute("aria-checked", String(selectedFieldName === field.fieldName));
+            row.style.cssText = `width: 100%; min-height: 62px; box-sizing: border-box; display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 10px 14px; border: 0; border-bottom: 1px solid #e7e9eb; background: ${selectedFieldName === field.fieldName ? "#eef5ff" : "#fff"}; color: #2f3437; text-align: right; cursor: pointer; font: inherit;`;
+            const radio = document.createElement("span");
+            radio.style.cssText = `width: 16px; height: 16px; box-sizing: border-box; border-radius: 50%; border: ${selectedFieldName === field.fieldName ? "5px solid #1976d2" : "1px solid #aeb4b9"};`;
+            const names = document.createElement("span");
+            names.style.cssText = "min-width: 0; display: flex; flex-direction: column; gap: 4px;";
+            const displayName = document.createElement("strong");
+            displayName.style.cssText = "font-size: 14px; font-weight: 500;";
+            displayName.textContent = field.displayName;
+            const apiName = document.createElement("span");
+            apiName.style.cssText = "direction: ltr; text-align: right; color: #6b7277; font: 12px monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;";
+            apiName.textContent = field.fieldName;
+            names.append(displayName, apiName);
+            const type = document.createElement("span");
+            type.style.cssText = "padding: 3px 8px; border-radius: 10px; background: #f0f2f4; color: #5c6368; font-size: 11px; white-space: nowrap;";
+            type.textContent = field.typeLabel;
+            row.append(radio, names, type);
+            row.addEventListener("click", () => {
+              selectedFieldName = field.fieldName;
+              renderRows();
+            });
+            list.appendChild(row);
+          });
+          continueButton.disabled = !selectedFieldName;
+          continueButton.style.opacity = selectedFieldName ? "1" : "0.45";
+          continueButton.style.cursor = selectedFieldName ? "pointer" : "not-allowed";
+        };
+        search.addEventListener("input", () => {
+          query = search.value;
+          renderRows();
+        });
+        const hint = document.createElement("p");
+        hint.style.cssText = "margin: 14px 0 0; color: #6b7277; font-size: 13px;";
+        hint.textContent = "ניתן למחוק רק שדה שאינו נמצא בשימוש בעמוד, תצוגה, אוטומציה או רכיב אחר.";
+        const actions = document.createElement("div");
+        actions.style.cssText = "display: flex; gap: 10px; margin-top: 20px;";
+        const cancelButton = createModalButton("ביטול");
+        cancelButton.addEventListener("click", close);
+        continueButton.addEventListener("click", () => {
+          const selected = fields.find((field) => field.fieldName === selectedFieldName);
+          if (selected) renderConfirmation(selected);
+        });
+        actions.append(cancelButton, continueButton);
+        content.append(title, search, noticeElement, list, hint, actions);
+        renderRows();
+        search.focus();
+      };
+      const renderConfirmation = (field) => {
+        content.replaceChildren();
+        const title = document.createElement("h2");
+        title.style.cssText = "margin: 0 0 14px; font-size: 22px; font-weight: 600;";
+        title.textContent = "האם אתה בטוח?";
+        const warning = document.createElement("p");
+        warning.style.cssText = "margin: 0; font-size: 14px; line-height: 1.7;";
+        warning.textContent = `הפעולה תמחק לצמיתות את השדה „${field.displayName}” (${field.fieldName}) ואת כל הנתונים השמורים בו. לא ניתן לבטל את הפעולה לאחר האישור.`;
+        const errorMessage = document.createElement("div");
+        errorMessage.setAttribute("role", "alert");
+        errorMessage.style.cssText = "display: none; margin-top: 14px; padding: 10px 12px; border-radius: 4px; background: #ffebee; color: #b71c1c; font-size: 13px; line-height: 1.5;";
+        const showDeletionFailure = (payload) => {
+          const dependencies = extractFieldDependencies(payload, objectType);
+          errorMessage.replaceChildren();
+          if (dependencies.length === 0) {
+            errorMessage.textContent = getApiErrorMessage(payload);
+            errorMessage.style.display = "block";
+            return;
+          }
+          const heading = document.createElement("strong");
+          heading.textContent = `השדה נמצא בשימוש ב־${dependencies.length} מקומות:`;
+          errorMessage.appendChild(heading);
+          const labels = {
+            page: "עמודים",
+            view: "תצוגות ומסננים",
+            automation: "אוטומציות",
+            field: "שדות ונוסחאות",
+            dashboard: "דשבורדים ורכיבים"
+          };
+          for (const kind of Object.keys(labels)) {
+            const matchingDependencies = dependencies.filter(
+              (dependency) => dependency.kind === kind
+            );
+            if (matchingDependencies.length === 0) continue;
+            const section = document.createElement("div");
+            section.style.cssText = "margin-top: 10px;";
+            const sectionTitle = document.createElement("div");
+            sectionTitle.style.cssText = "font-weight: 600;";
+            sectionTitle.textContent = labels[kind];
+            const list = document.createElement("ul");
+            list.style.cssText = "margin: 4px 0 0; padding-inline-start: 20px;";
+            for (const dependency of matchingDependencies) {
+              const item = document.createElement("li");
+              item.style.cssText = "margin-top: 4px;";
+              const name = document.createElement("span");
+              name.textContent = dependency.name;
+              item.appendChild(name);
+              if (dependency.url) {
+                const link = document.createElement("a");
+                link.href = dependency.url;
+                link.target = "_blank";
+                link.rel = "noopener noreferrer";
+                link.style.cssText = "margin-inline-start: 8px; color: #1565c0;";
+                link.textContent = "פתח";
+                item.appendChild(link);
+              }
+              list.appendChild(item);
+            }
+            section.append(sectionTitle, list);
+            errorMessage.appendChild(section);
+          }
+          const retryHint = document.createElement("div");
+          retryHint.style.cssText = "margin-top: 12px;";
+          retryHint.textContent = "לאחר הסרת השדה מהמקומות האלה, חזרו לכאן ונסו למחוק שוב.";
+          errorMessage.appendChild(retryHint);
+          errorMessage.style.display = "block";
+        };
+        const actions = document.createElement("div");
+        actions.style.cssText = "display: flex; gap: 10px; margin-top: 22px;";
+        const noButton = createModalButton("לא");
+        const confirmButton = createModalButton("כן, מחק את השדה", true);
+        noButton.addEventListener("click", () => renderPicker());
+        confirmButton.addEventListener("click", async () => {
+          if (confirmButton.disabled) return;
+          confirmButton.disabled = true;
+          confirmButton.textContent = "מוחק…";
+          confirmButton.style.cursor = "wait";
+          noButton.disabled = true;
+          errorMessage.style.display = "none";
+          try {
+            const result = await requestFieldDeletion({
+              fieldName: field.fieldName,
+              fieldType: field.apiType ?? field.typeLabel,
+              objectType
+            });
+            if (!result.success) {
+              showDeletionFailure(result.payload);
+              confirmButton.disabled = false;
+              confirmButton.textContent = "בדוק שוב ונסה למחוק";
+              confirmButton.style.cursor = "pointer";
+              noButton.disabled = false;
+              return;
+            }
+            fields = fields.filter((candidate) => candidate.fieldName !== field.fieldName);
+            selectedFieldName = null;
+            query = "";
+            renderPicker({ message: `השדה „${field.displayName}” נמחק בהצלחה.`, success: true });
+          } catch (error) {
+            errorMessage.textContent = error instanceof Error ? error.message : "המחיקה נכשלה. נסו שוב.";
+            errorMessage.style.display = "block";
+            confirmButton.disabled = false;
+            confirmButton.textContent = "כן, מחק את השדה";
+            confirmButton.style.cursor = "pointer";
+            noButton.disabled = false;
+          }
+        });
+        actions.append(noButton, confirmButton);
+        content.append(title, warning, errorMessage, actions);
+        noButton.focus();
+      };
+      const loadingTitle = document.createElement("h2");
+      loadingTitle.style.cssText = "margin: 0 0 14px; font-size: 22px; font-weight: 600;";
+      loadingTitle.textContent = "מחיקת שדה";
+      const loading = document.createElement("p");
+      loading.style.cssText = "margin: 0; color: #6b7277; font-size: 14px;";
+      loading.textContent = "טוען שדות מותאמים…";
+      content.append(loadingTitle, loading);
+      loadCustomFields().then((result) => {
+        fields = result.fields;
+        objectType = result.objectType;
+        renderPicker();
+      }).catch((error) => {
+        content.replaceChildren();
+        const title = document.createElement("h2");
+        title.style.cssText = "margin: 0 0 14px; font-size: 22px; font-weight: 600;";
+        title.textContent = "לא ניתן לטעון את השדות";
+        const message = document.createElement("p");
+        message.setAttribute("role", "alert");
+        message.style.cssText = "margin: 0 0 20px; color: #b71c1c; line-height: 1.5;";
+        message.textContent = error instanceof Error ? error.message : "אירעה שגיאה לא צפויה.";
+        const closeButton = createModalButton("סגירה");
+        closeButton.addEventListener("click", close);
+        content.append(title, message, closeButton);
+        closeButton.focus();
+      });
+    }
+    function findRecordLayoutToolbar() {
+      const saveButton = Array.from(document.querySelectorAll("button")).find(
+        (button) => button.textContent?.trim() === "שמור" && !button.closest('[role="dialog"]') && button.getClientRects().length > 0
+      );
+      if (!saveButton) return null;
+      let candidate = saveButton.parentElement;
+      for (let depth = 0; candidate && depth < 7; depth += 1) {
+        const rect = candidate.getBoundingClientRect();
+        if (rect.width > 500 && rect.height >= 36 && rect.height <= 120) return candidate;
+        candidate = candidate.parentElement;
+      }
+      return null;
+    }
+    function addDeleteShortcutToRecordLayoutEditor() {
+      const existingButton = document.querySelector(".fireberry-record-layout-delete-button");
+      if (!isEnabled || !getCurrentRecordLayoutId()) {
+        existingButton?.remove();
+        return;
+      }
+      if (existingButton) return;
+      const toolbar = findRecordLayoutToolbar();
+      if (!toolbar) return;
+      const deleteButton = document.createElement("button");
+      deleteButton.type = "button";
+      deleteButton.className = "fireberry-record-layout-delete-button";
+      deleteButton.textContent = "מחיקת שדה";
+      deleteButton.title = "בחירת שדה מותאם למחיקה";
+      deleteButton.style.cssText = "height: 34px; padding: 0 16px; margin-inline-start: 56px; border: 1px solid #d32f2f; border-radius: 4px; background: #fff; color: #c62828; cursor: pointer; font: inherit; font-size: 13px; font-weight: 500; flex-shrink: 0;";
+      deleteButton.addEventListener("mouseenter", () => {
+        deleteButton.style.background = "#fff3f3";
+      });
+      deleteButton.addEventListener("mouseleave", () => {
+        deleteButton.style.background = "#fff";
+      });
+      deleteButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        showFieldDeletionPicker();
+      });
+      toolbar.appendChild(deleteButton);
     }
     function getFieldApiName(element) {
       const reactKey = Object.keys(element).find(
@@ -221,6 +904,8 @@
       document.querySelectorAll(".fireberry-copy-api-button").forEach((button) => {
         button.remove();
       });
+      document.querySelector(".fireberry-record-layout-delete-button")?.remove();
+      document.querySelector(".fireberry-field-deletion-picker")?.remove();
       document.querySelectorAll("[data-value-labeled]").forEach((el) => {
         delete el.dataset.valueLabeled;
       });
