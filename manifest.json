@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Fireberry Picklist Option Viewer",
-  "version": "1.0.0",
-  "description": "Displays the underlying values of picklist options in Fireberry",
+  "version": "1.1.0",
+  "description": "Displays Fireberry API field names and picklist values, with one-click partner access to saved customer environments",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
@@ -18,16 +18,36 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://app.fireberry.com/*"],
-      "js": ["src/content/content.ts"],
+      "matches": [
+        "https://app.fireberry.com/*"
+      ],
+      "js": [
+        "src/content/content.ts"
+      ],
       "run_at": "document_idle"
     }
   ],
-  "permissions": ["activeTab", "storage"],
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting"
+  ],
   "web_accessible_resources": [
     {
-      "resources": ["pageScript.js"],
-      "matches": ["https://app.fireberry.com/*"]
+      "resources": [
+        "pageScript.js"
+      ],
+      "matches": [
+        "https://app.fireberry.com/*"
+      ]
     }
-  ]
+  ],
+  "minimum_chrome_version": "114",
+  "host_permissions": [
+    "https://app.fireberry.com/*"
+  ],
+  "background": {
+    "service_worker": "src/background/partner.js",
+    "type": "module"
+  }
 }

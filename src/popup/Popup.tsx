@@ -10,6 +10,7 @@ import { useState, useEffect } from 'react';
 
 function Popup() {
   const [enabled, setEnabled] = useState(true);
+  const [section, setSection] = useState<'viewer' | 'partner'>('partner');
 
   useEffect(() => {
     chrome.storage.sync.get(['enabled'], (result) => {
@@ -30,7 +31,7 @@ function Popup() {
         chrome.tabs.sendMessage(tabs[0].id, {
           type: 'TOGGLE_ENABLED',
           enabled: newState,
-        });
+        }).catch(() => { /* The active tab may not be a Fireberry page. */ });
       }
     });
   };
@@ -38,6 +39,14 @@ function Popup() {
   return (
     <div className="popup-container">
       <h1>Fireberry Picklist Option Viewer</h1>
+      <nav className="section-navigation" aria-label="Extension tools">
+        <button type="button" aria-pressed={section === 'partner'} onClick={() => setSection('partner')}>התחברות לסביבות</button>
+        <button type="button" aria-pressed={section === 'viewer'} onClick={() => setSection('viewer')}>שדות וערכי רשימות</button>
+      </nav>
+      <div hidden={section !== 'partner'}>
+        <iframe className="partner-frame" src="/partner/index.html" title="התחברות לסביבות Fireberry" />
+      </div>
+      <section hidden={section !== 'viewer'} aria-label="Field and picklist viewer">
 
       <p className="description">
         Displays the underlying values of picklist options in Fireberry.
@@ -47,6 +56,7 @@ function Popup() {
         <label className="toggle">
           <input
             type="checkbox"
+            aria-label="Show field API names and picklist values"
             checked={enabled}
             onChange={toggleEnabled}
           />
@@ -67,6 +77,7 @@ function Popup() {
         </ol>
       </div>
 
+      </section>
       <footer>
         <p>
           Created by{' '}
