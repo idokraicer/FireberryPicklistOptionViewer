@@ -35,7 +35,9 @@ async function fillAndSubmit(partnerEmail, password, customerEmail) {
 }
 const processing = new Set();
 async function processTab(tabId, tab) {
- if(tab.url==='about:blank') return;
+ // New tabs can emit completion before their host-permitted URL is available.
+ // Ignore these snapshots without consuming the pending login request.
+ if(!isLogin(tab.url)) return;
  await ready;
  const key='pending:'+tabId;
  if(processing.has(tabId)) return;

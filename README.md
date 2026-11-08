@@ -20,7 +20,7 @@ When upgrading an unpacked installation, keep the same extension folder and relo
 
 For Claude-assisted installation: clone this repository into a permanent folder, run `bun install --frozen-lockfile` and `bun run build`, then load the `dist/` folder in Chrome (Developer mode → Load unpacked). Let the user enter their own credentials inside the popup.
 
-Validation: `bun run test` runs ten mocked login/tab-selection tests; `bun run build` runs strict TypeScript and the production Vite build. A real login in the combined extension still needs a manual check.
+Validation: `bun run test` runs twelve mocked login/tab-selection tests; `bun run build` runs strict TypeScript and the production Vite build. A real login in the combined extension still needs a manual check.
 
 ## Features
 
