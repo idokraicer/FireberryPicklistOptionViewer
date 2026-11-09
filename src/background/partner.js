@@ -33,6 +33,27 @@ async function fillAndSubmit(partnerEmail, password, customerEmail) {
  }
  return {ok:false,error:'טופס ההתחברות לא זוהה בתוך 20 שניות. נסו שוב או התחברו ידנית.'};
 }
+// Runs in the Fireberry tab so the request uses that profile's session cookies.
+// No credentials are passed to this function or read from the page.
+async function logoutCurrentSession() {
+ if(location.origin!=='https://app.fireberry.com' || location.pathname.replace(/\/$/,'')!=='/app/partneraccess') return {ok:false};
+ const controller=new AbortController();
+ const timeout=setTimeout(()=>controller.abort(),15000);
+ try {
+  const response=await fetch('/_common/webcontrols/logoff.aspx',{
+   method:'GET',credentials:'include',cache:'no-store',redirect:'follow',signal:controller.signal
+  });
+  const destination=new URL(response.url);
+  // Fireberry redirects this endpoint to its login page, including when already logged out.
+  // Unexpected destinations/errors must not be followed by submitting new credentials.
+  if(!response.ok || destination.origin!=='https://app.fireberry.com' || destination.pathname.replace(/\/$/,'')!=='/app/login') return {ok:false};
+  // Match Fireberry's own logout cleanup, scoped to the site's localStorage.
+  // This does not touch the extension's chrome.storage settings or saved password.
+  localStorage.clear();
+  return {ok:true};
+ } catch { return {ok:false}; }
+ finally { clearTimeout(timeout); }
+}
 const processing = new Set();
 async function processTab(tabId, tab) {
  // New tabs can emit completion before their host-permitted URL is available.
@@ -55,6 +76,13 @@ async function processTab(tabId, tab) {
   const session=await chrome.storage.session.get('partnerPassword');
   const password=local.remember?local.partnerPassword:session.partnerPassword;
   if(!local.partnerEmail || !password) throw Error('missing');
+  await chrome.storage.local.set({lastStatus:'מתנתק מהסשן הנוכחי…'});
+  const logout=await chrome.scripting.executeScript({target:{tabId},func:logoutCurrentSession});
+  if(!logout[0]?.result?.ok) {
+   await chrome.storage.local.set({lastStatus:'ההתנתקות לא הושלמה. לא נשלחו פרטי התחברות. נסו שוב או התנתקו ידנית.'});
+   return;
+  }
+  await chrome.storage.local.set({lastStatus:'ההתנתקות הושלמה. מתחבר לסביבה שנבחרה…'});
   const results=await chrome.scripting.executeScript({target:{tabId},func:fillAndSubmit,args:[local.partnerEmail,password,pending.email]});
   const result=results[0]?.result;
   await chrome.storage.local.set({lastStatus:result?.ok?'הפרטים מולאו ונלחץ Access. בדקו בכרטיסיית Fireberry אם ההתחברות הצליחה.':result?.error||'המילוי לא הושלם. בדקו את כרטיסיית Fireberry.'});

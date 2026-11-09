@@ -12,15 +12,15 @@ The extension popup now has two sections: **התחברות לסביבות** (par
 
 1. Build and load `dist/` using the installation steps below.
 2. Open the partner login section, save your Partner Email and Partner Password, and add customer environments using a name and Customer Username Email.
-3. Click **כניסה** next to an environment. The extension reuses the current Fireberry tab, otherwise another open Fireberry tab, and creates a new tab only if none exists. It loads Partner Access, fills the fields and clicks Access once.
+3. Click **כניסה** next to an environment. The extension reuses the current Fireberry tab, otherwise another open Fireberry tab, and creates a new tab only if none exists. It loads Partner Access, logs out the current Fireberry session, waits for logout to finish, then fills the fields and clicks Access once. If logout fails, times out, or returns an unexpected destination, no new credentials are submitted.
 
-Partner settings and environments are local to this extension. Passwords default to `chrome.storage.session`, cleared on browser restart or extension reload/update/disable. Persistent local password storage is explicit opt-in and is **not an encrypted vault**. Credentials never use sync or the viewer's page-script messaging. All tabs in a Chrome profile share the Fireberry session; additional authentication must be completed manually.
+Partner settings and environments are local to this extension. Passwords default to `chrome.storage.session`, cleared on browser restart or extension reload/update/disable. Persistent local password storage is explicit opt-in and is **not an encrypted vault**. Credentials never use sync or the viewer's page-script messaging. Every environment login first logs out the shared Fireberry session across all tabs in the Chrome profile. Additional authentication must be completed manually. Logout also clears Fireberry site localStorage, matching its native logout, while leaving extension settings intact.
 
 When upgrading an unpacked installation, keep the same extension folder and reload it at `chrome://extensions`. Settings from a separate Partner Launcher extension do not transfer automatically; configure them once inside this extension. Do not enter credentials in source files or chat.
 
 For Claude-assisted installation: clone this repository into a permanent folder, run `bun install --frozen-lockfile` and `bun run build`, then load the `dist/` folder in Chrome (Developer mode → Load unpacked). Let the user enter their own credentials inside the popup.
 
-Validation: `bun run test` runs twelve mocked login/tab-selection tests; `bun run build` runs strict TypeScript and the production Vite build. A real login in the combined extension still needs a manual check.
+Validation: `bun run test` runs mocked logout, login and tab-selection tests; `bun run build` runs strict TypeScript and the production Vite build. A real login in the combined extension still needs a manual check.
 
 ## Features
 
