@@ -50,3 +50,12 @@ Vite + `@crxjs/vite-plugin` handles Chrome extension bundling. Custom rollup con
 ## TypeScript
 
 Strict mode enabled with `noUnusedLocals` and `noUnusedParameters`. Target ES2020, JSX with `react-jsx` transform.
+
+
+## Partner access integration
+
+- `public/partner/` contains the partner settings/environment UI, embedded as a same-origin extension frame in the popup. `src/background/partner.js` implements tab reuse and one-shot login automation.
+- Keep the existing viewer content/page scripts and `chrome.storage.sync.enabled` behavior intact. Partner credentials use trusted extension contexts only, never sync, window.postMessage, URLs or logs.
+- Passwords default to session storage; persistent local storage is explicit opt-in and is not an encrypted vault. Users must enter credentials inside the popup, not in source files or chat.
+- `bun run test` runs mocked login and tab-selection tests. `bun run build` performs strict TypeScript checking and production bundling. Install by loading `dist/`; a source checkout is not directly installable.
+- Updating an unpacked extension should preserve its folder/identity. Separate extension IDs do not share or automatically migrate environments or credentials. Never claim a real login passed based only on mocked tests.
