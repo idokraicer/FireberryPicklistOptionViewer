@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import {
   containsApiErrorCode,
+  isSuccessfulDeletionResponse,
   createFieldsMetadataRequest,
   extractFieldDependencies,
   extractRecordFormObjectType,
@@ -151,4 +152,29 @@ test('extracts and links structured Fireberry field dependencies', () => {
       url: '/app/record/55/rule-1',
     },
   ]);
+});
+
+test('rejects malformed successful deletion responses', () => {
+  const response = new Response(null, { status: 200 });
+  for (const payload of ['<!doctype html><html>Login</html>', 'Bad Gateway', '', null, false, true, [], 1]) {
+    expect(isSuccessfulDeletionResponse(response, payload)).toBe(false);
+  }
+});
+
+test('accepts JSON deletion results and no-content success, but rejects failures', () => {
+  const response = new Response(null, { status: 200 });
+  expect(isSuccessfulDeletionResponse(response, {})).toBe(true);
+  expect(isSuccessfulDeletionResponse(response, { success: true })).toBe(true);
+  expect(isSuccessfulDeletionResponse(new Response(null, { status: 204 }), null)).toBe(true);
+  expect(isSuccessfulDeletionResponse(response, { success: false })).toBe(false);
+  expect(isSuccessfulDeletionResponse(new Response(null, { status: 400 }), {})).toBe(false);
+});
+
+test('formula dependencies are fields and never get page-editor links', () => {
+  expect(extractFieldDependencies({ dependencies: [
+    { type: 'formula', name: 'Calculated total', id: 'formula-1' },
+  ] }, 1)).toEqual([{ kind: 'field', name: 'Calculated total' }]);
+  expect(extractFieldDependencies({ formulas: [
+    { name: 'Calculated total', id: 'formula-1' },
+  ] }, 1)).toEqual([{ kind: 'field', name: 'Calculated total' }]);
 });

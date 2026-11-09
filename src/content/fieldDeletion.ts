@@ -291,11 +291,12 @@ function getDependencyKind(
 
 function dependencyKindFromText(value: string): FieldDependencyKind | null {
   const normalized = value.toLowerCase().replace(/[\s_-]+/g, '');
+  if (/formula|summary|rollup|נוסח|סיכום/.test(normalized)) return 'field';
   if (/recordlayout|layout|form|page|עמוד|טופס/.test(normalized)) return 'page';
   if (/view|filter|תצוג|מסנן/.test(normalized)) return 'view';
   if (/automation|workflow|businessrule|אוטומ/.test(normalized)) return 'automation';
   if (/dashboard|widget|דשבורד|ווידג/.test(normalized)) return 'dashboard';
-  if (/formula|summary|rollup|field|נוסח|סיכום|שדה/.test(normalized)) return 'field';
+  if (/field|שדה/.test(normalized)) return 'field';
   return null;
 }
 
@@ -386,4 +387,15 @@ function getFirstString(
     if (typeof value === 'number') return String(value);
   }
   return null;
+}
+
+export function isSuccessfulDeletionResponse(response: Response, payload: unknown): boolean {
+  if (!response.ok || response.redirected) return false;
+  if (response.status === 204) return payload === null;
+  return (
+    payload !== null &&
+    typeof payload === 'object' &&
+    !Array.isArray(payload) &&
+    (!('success' in payload) || payload.success === true)
+  );
 }

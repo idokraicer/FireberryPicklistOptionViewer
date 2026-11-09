@@ -219,11 +219,12 @@
   }
   function dependencyKindFromText(value) {
     const normalized = value.toLowerCase().replace(/[\s_-]+/g, "");
+    if (/formula|summary|rollup|נוסח|סיכום/.test(normalized)) return "field";
     if (/recordlayout|layout|form|page|עמוד|טופס/.test(normalized)) return "page";
     if (/view|filter|תצוג|מסנן/.test(normalized)) return "view";
     if (/automation|workflow|businessrule|אוטומ/.test(normalized)) return "automation";
     if (/dashboard|widget|דשבורד|ווידג/.test(normalized)) return "dashboard";
-    if (/formula|summary|rollup|field|נוסח|סיכום|שדה/.test(normalized)) return "field";
+    if (/field|שדה/.test(normalized)) return "field";
     return null;
   }
   function getDependencyName(record) {
@@ -293,6 +294,11 @@
       if (typeof value === "number") return String(value);
     }
     return null;
+  }
+  function isSuccessfulDeletionResponse(response, payload) {
+    if (!response.ok || response.redirected) return false;
+    if (response.status === 204) return payload === null;
+    return payload !== null && typeof payload === "object" && !Array.isArray(payload) && (!("success" in payload) || payload.success === true);
   }
 
   // src/content/pageScript.ts
@@ -418,9 +424,6 @@
         return responseText;
       }
     }
-    function isSuccessfulResponse(response, payload) {
-      return response.ok && (!payload || typeof payload !== "object" || payload.success !== false);
-    }
     async function requestFieldDeletion(context) {
       const fieldType = normalizeFieldTypeForApi(context.fieldType);
       if (fieldType) {
@@ -436,7 +439,7 @@
         if (officialResponse.status !== 404 && officialResponse.status !== 405) {
           return {
             payload: officialPayload,
-            success: isSuccessfulResponse(officialResponse, officialPayload)
+            success: isSuccessfulDeletionResponse(officialResponse, officialPayload)
           };
         }
       }
@@ -452,7 +455,7 @@
       const payload = await readResponsePayload(response);
       return {
         payload,
-        success: isSuccessfulResponse(response, payload)
+        success: isSuccessfulDeletionResponse(response, payload)
       };
     }
     function getCurrentRecordLayoutId() {

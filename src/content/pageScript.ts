@@ -5,6 +5,7 @@
 
 import {
   containsApiErrorCode,
+  isSuccessfulDeletionResponse,
   createFieldsMetadataRequest,
   extractFieldDependencies,
   extractRecordFormObjectType,
@@ -219,15 +220,6 @@ declare global {
     }
   }
 
-  function isSuccessfulResponse(response: Response, payload: unknown): boolean {
-    return (
-      response.ok &&
-      (!payload ||
-        typeof payload !== 'object' ||
-        (payload as Record<string, unknown>).success !== false)
-    );
-  }
-
   async function requestFieldDeletion(context: EditableFieldContext): Promise<ApiResult> {
     const fieldType = normalizeFieldTypeForApi(context.fieldType);
     if (fieldType) {
@@ -244,7 +236,7 @@ declare global {
       if (officialResponse.status !== 404 && officialResponse.status !== 405) {
         return {
           payload: officialPayload,
-          success: isSuccessfulResponse(officialResponse, officialPayload),
+          success: isSuccessfulDeletionResponse(officialResponse, officialPayload),
         };
       }
     }
@@ -262,7 +254,7 @@ declare global {
 
     return {
       payload,
-      success: isSuccessfulResponse(response, payload),
+      success: isSuccessfulDeletionResponse(response, payload),
     };
   }
 
