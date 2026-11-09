@@ -84,6 +84,7 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
    const matches=await chrome.tabs.query({url:'https://app.fireberry.com/*'});
    const current=await chrome.tabs.query({active:true,currentWindow:true});
    const selected=selectExistingTab(matches,current[0]?.id);
+   if(selected && processing.has(selected.id)) return {ok:false,error:'התחברות כבר מתבצעת בכרטיסייה זו. המתינו לסיום ונסו שוב.'};
    const reused=!!selected;
    const tab=selected || await chrome.tabs.create({url:'about:blank',active:true});
    await chrome.storage.session.set({['pending:'+tab.id]:{email:env.email,created:Date.now()}});
