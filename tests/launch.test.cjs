@@ -3,13 +3,13 @@ const assert=require('node:assert/strict');
 const vm=require('node:vm');
 const fs=require('node:fs');
 const code=fs.readFileSync(require('node:path').join(__dirname,'../src/background/partner.js'),'utf8');
-function setup(existing, { delayedLoad = false, injectionGate = Promise.resolve() } = {}) {
+function setup(existing, { delayedLoad = false, injectionGate = Promise.resolve(), logoutGate = Promise.resolve(), logoutOk = true } = {}) {
  const local={environments:[{id:'env',email:'customer@example.com'}],partnerEmail:'partner@example.com',remember:false};
  const session={partnerPassword:'fake-password'};
  const area=data=>({setAccessLevel:async()=>{},get:async keys=>Object.fromEntries((typeof keys==='string'?[keys]:keys).filter(k=>k in data).map(k=>[k,data[k]])),set:async values=>Object.assign(data,values),remove:async key=>{delete data[key];}});
- let handler,updated;const calls={created:0,injected:0,updates:[]};
+ let handler,updated;const calls={created:0,injected:0,updates:[],logouts:0,order:[]};
  const tabs=existing.map(t=>({...t}));
- const chrome={storage:{local:area(local),session:area(session)},runtime:{id:'test',onMessage:{addListener(fn){handler=fn;}}},windows:{update:async()=>{}},scripting:{executeScript:async()=>{calls.injected++;await injectionGate;return [{result:{ok:true}}];}},tabs:{onUpdated:{addListener(fn){updated=fn;}},onRemoved:{addListener(){}},query:async q=>q.url?tabs:tabs.filter(t=>t.active),create:async()=>{calls.created++;const t={id:99,url:'about:blank',status:'complete'};tabs.push(t);return t;},update:async(id,props)=>{calls.updates.push({id,...props});const t=tabs.find(t=>t.id===id);Object.assign(t,props);if(props.url)t.status=delayedLoad?'loading':'complete';return {...t};},get:async id=>tabs.find(t=>t.id===id)}};
+ const chrome={storage:{local:area(local),session:area(session)},runtime:{id:'test',onMessage:{addListener(fn){handler=fn;}}},windows:{update:async()=>{}},scripting:{executeScript:async ({func})=>{if(func.name==='logoutCurrentSession'){calls.logouts++;calls.order.push('logout-start');await logoutGate;calls.order.push('logout-end');return [{result:{ok:logoutOk}}];}calls.injected++;calls.order.push('fill');await injectionGate;return [{result:{ok:true}}];}},tabs:{onUpdated:{addListener(fn){updated=fn;}},onRemoved:{addListener(){}},query:async q=>q.url?tabs:tabs.filter(t=>t.active),create:async()=>{calls.created++;const t={id:99,url:'about:blank',status:'complete'};tabs.push(t);return t;},update:async(id,props)=>{calls.updates.push({id,...props});const t=tabs.find(t=>t.id===id);Object.assign(t,props);if(props.url)t.status=delayedLoad?'loading':'complete';return {...t};},get:async id=>tabs.find(t=>t.id===id)}};
  const c=vm.createContext({chrome,URL,Date,Promise,Set});vm.runInContext(code,c);
  return {calls,session,local,updated,launch:()=>new Promise(resolve=>handler({type:'launch',id:'env'},{id:'test'},resolve))};
 }
@@ -62,4 +62,17 @@ test('rejects a second launch on a busy tab without stranding a pending request'
  await settle();
  assert.equal(x.calls.injected,2);
  assert.equal(x.session['pending:1'],undefined);
+});
+
+test('awaits logout before filling on every environment launch',async()=>{
+ let release; const logoutGate=new Promise(resolve=>{release=resolve;});
+ const x=setup([{id:1,url:'https://app.fireberry.com/app/partneraccess',status:'complete',active:true}],{logoutGate});
+ try {await x.launch();await settle();assert.equal(x.calls.logouts,1);assert.equal(x.calls.injected,0);}finally{release();}
+ await settle();assert.deepEqual(x.calls.order,['logout-start','logout-end','fill']);
+ await x.launch();await settle();assert.equal(x.calls.logouts,2);assert.equal(x.calls.injected,2);
+});
+test('logout failure prevents credential filling and consumes the request',async()=>{
+ const x=setup([],{logoutOk:false});await x.launch();await settle();
+ assert.equal(x.calls.logouts,1);assert.equal(x.calls.injected,0);
+ assert.equal(x.session['pending:99'],undefined);assert.ok(x.local.lastStatus.includes('התנתקות'));
 });
