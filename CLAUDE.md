@@ -59,3 +59,5 @@ Strict mode enabled with `noUnusedLocals` and `noUnusedParameters`. Target ES202
 - Passwords default to session storage; persistent local storage is explicit opt-in and is not an encrypted vault. Users must enter credentials inside the popup, not in source files or chat.
 - `bun run test` runs mocked login and tab-selection tests. `bun run build` performs strict TypeScript checking and production bundling. Install by loading `dist/`; a source checkout is not directly installable.
 - Updating an unpacked extension should preserve its folder/identity. Separate extension IDs do not share or automatically migrate environments or credentials. Never claim a real login passed based only on mocked tests.
+
+- Each environment login now awaits a same-origin cookie-authenticated logout request to `/_common/webcontrols/logoff.aspx`. Only a successful redirect to `/app/login` permits credential filling; failures and the 15-second timeout stop the login. The helper clears Fireberry site localStorage like native logout, never extension storage. Logout affects all Fireberry tabs in the profile.

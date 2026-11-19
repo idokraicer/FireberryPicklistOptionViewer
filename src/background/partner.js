@@ -87,6 +87,14 @@ async function processTab(tabId, tab) {
   const session=await chrome.storage.session.get('partnerPassword');
   const password=local.remember?local.partnerPassword:session.partnerPassword;
   if(!local.partnerEmail || !password) throw Error('missing');
+  if(pending.needsLogout) {
+   await chrome.storage.local.set({lastStatus:'מתנתק מהסשן הנוכחי…'});
+   const logout=await chrome.scripting.executeScript({target:{tabId},func:logoutCurrentSession});
+   if(!logout[0]?.result?.ok) {
+    await chrome.storage.local.set({lastStatus:'ההתנתקות לא הושלמה. לא נשלחו פרטי התחברות. נסו שוב.'});
+    return;
+   }
+  }
   const results=await chrome.scripting.executeScript({target:{tabId},func:fillAndSubmit,args:[local.partnerEmail,password,pending.email]});
   const result=results[0]?.result;
   await chrome.storage.local.set({lastStatus:result?.ok?'הפרטים מולאו ונלחץ Access. בדקו בכרטיסיית Fireberry אם ההתחברות הצליחה.':result?.error||'המילוי לא הושלם. בדקו את כרטיסיית Fireberry.'});
@@ -138,7 +146,7 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
    }
    const reused=!!selected;
    const tab=selected || await chrome.tabs.create({url:'about:blank',active:true});
-   await chrome.storage.session.set({['pending:'+tab.id]:{email:env.email,created:Date.now()}});
+   await chrome.storage.session.set({['pending:'+tab.id]:{email:env.email,created:Date.now(),needsLogout:!reused}});
    await chrome.storage.local.set({lastStatus:'ממתין לטעינת עמוד ההתחברות…'});
    try {
     await chrome.tabs.update(tab.id,{active:true});
