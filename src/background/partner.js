@@ -33,6 +33,38 @@ async function fillAndSubmit(partnerEmail, password, customerEmail) {
  }
  return {ok:false,error:'טופס ההתחברות לא זוהה בתוך 20 שניות. נסו שוב או התחברו ידנית.'};
 }
+// Runs in the Fireberry tab so the request uses that profile's session cookies.
+// No credentials are passed to this function or read from the page.
+async function logoutCurrentSession() {
+ if(location.origin!=='https://app.fireberry.com') return {ok:false};
+ const controller=new AbortController();
+ const timeout=setTimeout(()=>controller.abort(),15000);
+ try {
+  const response=await fetch('/_common/webcontrols/logoff.aspx',{
+   method:'GET',credentials:'include',cache:'no-store',redirect:'follow',signal:controller.signal
+  });
+  const destination=new URL(response.url);
+  // Fireberry redirects this endpoint to its login page, including when already logged out.
+  // Unexpected destinations/errors must not be followed by submitting new credentials.
+  if(!response.ok || destination.origin!=='https://app.fireberry.com' || destination.pathname.replace(/\/$/,'')!=='/app/login') return {ok:false};
+  // Match Fireberry's own logout cleanup, scoped to the site's localStorage.
+  // This does not touch the extension's chrome.storage settings or saved password.
+  localStorage.clear();
+  return {ok:true};
+ } catch { return {ok:false}; }
+ finally { clearTimeout(timeout); }
+}
+// Wait for the old CRM document to be replaced before a new session is created.
+async function parkTab(tabId) {
+ await chrome.tabs.update(tabId,{url:LOGIN_URL});
+ const deadline=Date.now()+20000;
+ while(Date.now()<deadline) {
+  const tab=await chrome.tabs.get(tabId);
+  if(tab.status==='complete' && isLogin(tab.url)) return;
+  await new Promise(resolve=>setTimeout(resolve,100));
+ }
+ throw Error('Fireberry tab did not finish logging out');
+}
 const processing = new Set();
 async function processTab(tabId, tab) {
  // New tabs can emit completion before their host-permitted URL is available.
@@ -84,7 +116,26 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
    const matches=await chrome.tabs.query({url:'https://app.fireberry.com/*'});
    const current=await chrome.tabs.query({active:true,currentWindow:true});
    const selected=selectExistingTab(matches,current[0]?.id);
-   if(selected && processing.has(selected.id)) return {ok:false,error:'התחברות כבר מתבצעת בכרטיסייה זו. המתינו לסיום ונסו שוב.'};
+   if(processing.size) return {ok:false,error:'התחברות כבר מתבצעת בכרטיסייה זו. המתינו לסיום ונסו שוב.'};
+   await chrome.storage.local.set({lastStatus:'מתנתק מכל כרטיסיות Fireberry…'});
+   // Remove old requests before navigating any tab, so completion cannot submit them.
+   await Promise.all(matches.map(tab=>chrome.storage.session.remove('pending:'+tab.id)));
+   const logouts=await Promise.allSettled(matches.map(async tab=>{
+    const results=await chrome.scripting.executeScript({target:{tabId:tab.id},func:logoutCurrentSession});
+    if(!results[0]?.result?.ok) throw Error('Logout failed');
+   }));
+   if(logouts.some(result=>result.status==='rejected')) {
+    const error='ההתנתקות מכל הכרטיסיות לא הושלמה. לא נשלחו פרטי התחברות. נסו שוב.';
+    await chrome.storage.local.set({lastStatus:error});
+    return {ok:false,error};
+   }
+   // Other tabs stay logged out; only the selected tab receives the new login.
+   const parked=await Promise.allSettled(matches.filter(tab=>tab.id!==selected?.id).map(tab=>parkTab(tab.id)));
+   if(parked.some(result=>result.status==='rejected')) {
+    const error='לא ניתן היה לפנות את כל כרטיסיות הסביבה הישנה. לא נשלחו פרטי התחברות. נסו שוב.';
+    await chrome.storage.local.set({lastStatus:error});
+    return {ok:false,error};
+   }
    const reused=!!selected;
    const tab=selected || await chrome.tabs.create({url:'about:blank',active:true});
    await chrome.storage.session.set({['pending:'+tab.id]:{email:env.email,created:Date.now()}});

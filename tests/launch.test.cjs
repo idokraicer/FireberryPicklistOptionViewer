@@ -3,15 +3,15 @@ const assert=require('node:assert/strict');
 const vm=require('node:vm');
 const fs=require('node:fs');
 const code=fs.readFileSync(require('node:path').join(__dirname,'../src/background/partner.js'),'utf8');
-function setup(existing, { delayedLoad = false, injectionGate = Promise.resolve() } = {}) {
+function setup(existing, { delayedLoad = false, injectionGate = Promise.resolve(), logoutGate = Promise.resolve(), logoutOk = true } = {}) {
  const local={environments:[{id:'env',email:'customer@example.com'}],partnerEmail:'partner@example.com',remember:false};
  const session={partnerPassword:'fake-password'};
  const area=data=>({setAccessLevel:async()=>{},get:async keys=>Object.fromEntries((typeof keys==='string'?[keys]:keys).filter(k=>k in data).map(k=>[k,data[k]])),set:async values=>Object.assign(data,values),remove:async key=>{delete data[key];}});
- let handler,updated;const calls={created:0,injected:0,updates:[]};
+ let handler,updated;const calls={created:0,injected:0,updates:[],loggedOut:[],events:[]};
  const tabs=existing.map(t=>({...t}));
- const chrome={storage:{local:area(local),session:area(session)},runtime:{id:'test',onMessage:{addListener(fn){handler=fn;}}},windows:{update:async()=>{}},scripting:{executeScript:async()=>{calls.injected++;await injectionGate;return [{result:{ok:true}}];}},tabs:{onUpdated:{addListener(fn){updated=fn;}},onRemoved:{addListener(){}},query:async q=>q.url?tabs:tabs.filter(t=>t.active),create:async()=>{calls.created++;const t={id:99,url:'about:blank',status:'complete'};tabs.push(t);return t;},update:async(id,props)=>{calls.updates.push({id,...props});const t=tabs.find(t=>t.id===id);Object.assign(t,props);if(props.url)t.status=delayedLoad?'loading':'complete';return {...t};},get:async id=>tabs.find(t=>t.id===id)}};
- const c=vm.createContext({chrome,URL,Date,Promise,Set});vm.runInContext(code,c);
- return {calls,session,local,updated,launch:()=>new Promise(resolve=>handler({type:'launch',id:'env'},{id:'test'},resolve))};
+ const chrome={storage:{local:area(local),session:area(session)},runtime:{id:'test',onMessage:{addListener(fn){handler=fn;}}},windows:{update:async()=>{}},scripting:{executeScript:async ({target,func})=>{if(func.name==='logoutCurrentSession'){calls.loggedOut.push(target.tabId);await logoutGate;calls.events.push('logout:'+target.tabId);return [{result:{ok:logoutOk}}];}calls.events.push('login');calls.injected++;await injectionGate;return [{result:{ok:true}}];}},tabs:{onUpdated:{addListener(fn){updated=fn;}},onRemoved:{addListener(){}},query:async q=>q.url?tabs:tabs.filter(t=>t.active),create:async()=>{calls.created++;const t={id:99,url:'about:blank',status:'complete'};tabs.push(t);return t;},update:async(id,props)=>{calls.updates.push({id,...props});const t=tabs.find(t=>t.id===id);Object.assign(t,props);if(props.url)t.status=delayedLoad?'loading':'complete';return {...t};},get:async id=>tabs.find(t=>t.id===id)}};
+ const c=vm.createContext({chrome,URL,Date,Promise,Set,setTimeout});vm.runInContext(code,c);
+ return {calls,session,local,updated,tabs,launch:()=>new Promise(resolve=>handler({type:'launch',id:'env'},{id:'test'},resolve))};
 }
 const settle=()=>new Promise(r=>setImmediate(r));
 test('existing login tab fills immediately without a new load event or new tab',async()=>{const x=setup([{id:1,url:'https://app.fireberry.com/app/partneraccess',status:'complete',active:true}]);assert.equal((await x.launch()).reused,true);await settle();assert.equal(x.calls.created,0);assert.equal(x.calls.injected,1);assert.equal(x.calls.updates.some(t=>t.url),false);});
@@ -62,4 +62,30 @@ test('rejects a second launch on a busy tab without stranding a pending request'
  await settle();
  assert.equal(x.calls.injected,2);
  assert.equal(x.session['pending:1'],undefined);
+});
+
+
+test('logs out every Fireberry tab before login and removes stale CRM pages',async()=>{
+ let release;const logoutGate=new Promise(resolve=>{release=resolve;});
+ const x=setup([{id:1,url:'https://app.fireberry.com/app/views/1',status:'complete',active:true},{id:2,url:'https://app.fireberry.com/app/views/2',status:'complete'}],{logoutGate});
+ const launched=x.launch();await settle();
+ assert.deepEqual(x.calls.loggedOut.sort(),[1,2]);assert.equal(x.calls.injected,0);
+ release();assert.equal((await launched).ok,true);await settle();
+ assert.equal(x.calls.injected,1);
+ assert.ok(x.calls.events.indexOf('login')>x.calls.events.indexOf('logout:2'));
+ assert.ok(x.calls.updates.some(t=>t.id===2 && t.url==='https://app.fireberry.com/app/partneraccess'));
+});
+test('logout failure prevents credential submission in every tab',async()=>{
+ const x=setup([{id:1,url:'https://app.fireberry.com/app/partneraccess',status:'complete',active:true}],{logoutOk:false});
+ assert.equal((await x.launch()).ok,false);await settle();
+ assert.equal(x.calls.injected,0);assert.equal(x.session['pending:1'],undefined);
+});
+
+test('waits for other tabs to replace the old document before starting login',async()=>{
+ const x=setup([{id:1,url:'https://app.fireberry.com/app/partneraccess',status:'complete',active:true},{id:2,url:'https://app.fireberry.com/app/views/2',status:'complete'}],{delayedLoad:true});
+ const launched=x.launch();await settle();
+ assert.equal(x.tabs[1].status,'loading');assert.equal(x.calls.injected,0);
+ assert.equal((await x.launch()).ok,false,'overlapping environment switches are blocked');
+ x.tabs[1].status='complete';
+ assert.equal((await launched).ok,true);await settle();assert.equal(x.calls.injected,1);
 });
