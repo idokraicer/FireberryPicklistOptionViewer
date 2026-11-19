@@ -1,3 +1,4 @@
+import { createFieldShortcut } from './fieldShortcut';
 /**
  * Page script that runs in the main world (page context)
  * This script can access React's fiber properties on DOM elements
@@ -31,6 +32,7 @@ declare global {
 
   let isEnabled = true;
   let observer: MutationObserver | null = null;
+  const fieldShortcut = createFieldShortcut();
 
   interface OptionData {
     value: unknown;
@@ -773,8 +775,9 @@ declare global {
           const actionsSibling = field.nextElementSibling as HTMLElement;
           const copyTid = actionsSibling?.querySelector('[data-tid="copy"]');
           const actionsContainer = copyTid?.parentElement as HTMLElement;
-          if (actionsContainer && !actionsContainer.querySelector('.fireberry-copy-api-button')) {
-            addCopyButton(actionsContainer, apiName);
+          if (actionsContainer) {
+            if (!actionsContainer.querySelector('.fireberry-copy-api-button')) addCopyButton(actionsContainer, apiName);
+            fieldShortcut.addFieldEditButton(actionsContainer, field);
             return true;
           }
           return false;
@@ -933,6 +936,7 @@ declare global {
 
   function setEnabled(enabled: boolean): void {
     isEnabled = enabled;
+    fieldShortcut.setEnabled(enabled);
 
     if (enabled) {
       startObserver();
