@@ -65,14 +65,14 @@ test('rejects a second launch on a busy tab without stranding a pending request'
 });
 
 
-test('logs out every Fireberry tab before login and removes stale CRM pages',async()=>{
+test('logs out the shared session once before login and removes stale CRM pages',async()=>{
  let release;const logoutGate=new Promise(resolve=>{release=resolve;});
  const x=setup([{id:1,url:'https://app.fireberry.com/app/views/1',status:'complete',active:true},{id:2,url:'https://app.fireberry.com/app/views/2',status:'complete'}],{logoutGate});
  const launched=x.launch();await settle();
- assert.deepEqual(x.calls.loggedOut.sort(),[1,2]);assert.equal(x.calls.injected,0);
+ assert.deepEqual(x.calls.loggedOut,[1]);assert.equal(x.calls.injected,0);
  release();assert.equal((await launched).ok,true);await settle();
  assert.equal(x.calls.injected,1);
- assert.ok(x.calls.events.indexOf('login')>x.calls.events.indexOf('logout:2'));
+ assert.deepEqual(x.calls.events,['logout:1','login']);
  assert.ok(x.calls.updates.some(t=>t.id===2 && t.url==='https://app.fireberry.com/app/partneraccess'));
 });
 test('logout failure prevents credential submission in every tab',async()=>{
@@ -105,11 +105,27 @@ test('every repeated switch performs logout again',async()=>{
  assert.deepEqual(x.calls.events,['logout:1','login','logout:1','login']);
 });
 
-test('failure in a background tab blocks login in the selected tab',async()=>{
- const x=setup([{id:1,url:'https://app.fireberry.com/app/partneraccess',status:'complete',active:true},{id:2,url:'https://app.fireberry.com/app/views/2',status:'complete'}],{failedLogoutTab:2});
+test('falls back to another tab when the selected tab cannot log out',async()=>{
+ const x=setup([{id:1,url:'https://app.fireberry.com/app/partneraccess',status:'complete',active:true},{id:2,url:'https://app.fireberry.com/app/views/2',status:'complete'}],{failedLogoutTab:1});
+ assert.equal((await x.launch()).ok,true);await settle();
+ assert.deepEqual(x.calls.loggedOut,[1,2]);assert.deepEqual(x.calls.events,['logout:1','logout:2','login']);
+});
+test('logout failure in every live tab blocks login',async()=>{
+ const x=setup([{id:1,url:'https://app.fireberry.com/app/partneraccess',status:'complete',active:true},{id:2,url:'https://app.fireberry.com/app/views/2',status:'complete'}],{logoutOk:false});
  assert.equal((await x.launch()).ok,false);await settle();
- assert.deepEqual(x.calls.loggedOut.sort(),[1,2]);assert.equal(x.calls.injected,0);
+ assert.deepEqual(x.calls.loggedOut,[1,2]);assert.equal(x.calls.injected,0);
  assert.equal(Object.keys(x.session).some(k=>k.startsWith('pending:')),false);
+});
+test('a sleeping background tab does not block the switch',async()=>{
+ const x=setup([{id:1,url:'https://app.fireberry.com/app/partneraccess',status:'complete',active:true},{id:2,url:'https://app.fireberry.com/app/views/2',status:'unloaded',discarded:true}]);
+ assert.equal((await x.launch()).ok,true);await settle();
+ assert.deepEqual(x.calls.loggedOut,[1]);assert.equal(x.calls.injected,1);
+ assert.ok(x.calls.updates.some(t=>t.id===2 && t.url==='https://app.fireberry.com/app/partneraccess'));
+});
+test('when every tab is asleep the selected tab logs out after loading, before login',async()=>{
+ const x=setup([{id:1,url:'https://app.fireberry.com/app/views/1',status:'unloaded',discarded:true,active:true}]);
+ assert.equal((await x.launch()).ok,true);await settle();
+ assert.deepEqual(x.calls.events,['logout:1','login']);
 });
 test('failure replacing an old CRM page blocks credential submission',async()=>{
  const x=setup([{id:1,url:'https://app.fireberry.com/app/partneraccess',status:'complete',active:true},{id:2,url:'https://app.fireberry.com/app/views/2',status:'complete'}],{failedNavigationTab:2});

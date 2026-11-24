@@ -124,15 +124,22 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
    const matches=await chrome.tabs.query({url:'https://app.fireberry.com/*'});
    const current=await chrome.tabs.query({active:true,currentWindow:true});
    const selected=selectExistingTab(matches,current[0]?.id);
-   if(processing.size) return {ok:false,error:'התחברות כבר מתבצעת בכרטיסייה זו. המתינו לסיום ונסו שוב.'};
+   if(processing.size) return {ok:false,error:'התחברות כבר מתבצעת. המתינו לסיום ונסו שוב.'};
    await chrome.storage.local.set({lastStatus:'מתנתק מכל כרטיסיות Fireberry…'});
    // Remove old requests before navigating any tab, so completion cannot submit them.
    await Promise.all(matches.map(tab=>chrome.storage.session.remove('pending:'+tab.id)));
-   const logouts=await Promise.allSettled(matches.map(async tab=>{
-    const results=await chrome.scripting.executeScript({target:{tabId:tab.id},func:logoutCurrentSession});
-    if(!results[0]?.result?.ok) throw Error('Logout failed');
-   }));
-   if(logouts.some(result=>result.status==='rejected')) {
+   // The session cookie is shared by every tab, so one successful logout ends it everywhere.
+   // Sleeping (discarded/unloaded) tabs cannot run scripts; they are only navigated below.
+   const live=matches.filter(tab=>!tab.discarded && tab.status!=='unloaded');
+   const candidates=[...live.filter(tab=>tab.id===selected?.id),...live.filter(tab=>tab.id!==selected?.id)];
+   let loggedOut=false;
+   for(const tab of candidates) {
+    try {
+     const results=await chrome.scripting.executeScript({target:{tabId:tab.id},func:logoutCurrentSession});
+     if(results[0]?.result?.ok) {loggedOut=true;break;}
+    } catch {}
+   }
+   if(candidates.length && !loggedOut) {
     const error='ההתנתקות מכל הכרטיסיות לא הושלמה. לא נשלחו פרטי התחברות. נסו שוב.';
     await chrome.storage.local.set({lastStatus:error});
     return {ok:false,error};
@@ -146,7 +153,7 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
    }
    const reused=!!selected;
    const tab=selected || await chrome.tabs.create({url:'about:blank',active:true});
-   await chrome.storage.session.set({['pending:'+tab.id]:{email:env.email,created:Date.now(),needsLogout:!reused}});
+   await chrome.storage.session.set({['pending:'+tab.id]:{email:env.email,created:Date.now(),needsLogout:!loggedOut}});
    await chrome.storage.local.set({lastStatus:'ממתין לטעינת עמוד ההתחברות…'});
    try {
     await chrome.tabs.update(tab.id,{active:true});
