@@ -254,7 +254,10 @@ export function openInlineFieldDialog(url: string, onError: (message: string) =>
     if (previousFocus?.isConnected) previousFocus.focus();
   }
   function onKey(event: KeyboardEvent): void {
-    if (event.key === 'Escape') { event.stopPropagation(); close(); }
+    if (event.key !== 'Escape' || event.defaultPrevented) return;
+    // Let native dropdowns/menus inside the editor consume Escape first.
+    if (boundChild?.querySelector('[role="listbox"], [role="menu"], .MuiPopover-root, .MuiAutocomplete-popper')) return;
+    event.stopPropagation(); close();
   }
   function onNativeDismiss(event: MouseEvent): void {
     const target = event.target as Element | null;
@@ -323,13 +326,6 @@ export function createFieldShortcut(): {
   let interval: ReturnType<typeof setInterval> | undefined;
   let scheduled = false;
   let closeInlineDialog: (() => void) | undefined;
-  let selectingFields = false;
-  let selectedAt = 0;
-  const initialUrl = new URL(location.href);
-  const mdObjectId = initialUrl.pathname.match(SETTINGS_PATH)?.[1]?.toLowerCase();
-  const handoffType = Number(initialUrl.searchParams.get(HANDOFF_PARAM));
-  let pending = !!mdObjectId && GUID.test(mdObjectId) && Number.isSafeInteger(handoffType) && handoffType > 0;
-  const handoffStart = Date.now();
 
   function notice(message: string): void {
     document.getElementById('fireberry-field-shortcut-notice')?.remove();
@@ -343,56 +339,8 @@ export function createFieldShortcut(): {
     setTimeout(() => box.remove(), 9000);
   }
 
-  function clearHandoff(): void {
-    pending = false;
-    const url = new URL(location.href);
-    url.searchParams.delete(HANDOFF_PARAM);
-    history.replaceState(history.state, '', url.href);
-  }
-
-  function completeHandoff(): void {
-    if (!pending || !mdObjectId) return;
-    const current = new URL(location.href);
-    if (current.pathname.match(SETTINGS_PATH)?.[1]?.toLowerCase() !== mdObjectId ||
-        Number(current.searchParams.get(HANDOFF_PARAM)) !== handoffType) {
-      pending = false;
-      return;
-    }
-    if (Date.now() - handoffStart > 30000) {
-      clearHandoff();
-      notice('לא ניתן לפתוח הוספת שדה אוטומטית. אפשר לפתוח ״שדות רשומה״ וללחוץ ״חדש״; ודא שיש לך הרשאה.');
-      return;
-    }
-    const related = document.querySelector('[data-tid="relateds"]');
-    if (!related) return;
-    const metadata = objectMetadata(related, handoffType);
-    if (metadata?.mdobjectid?.toLowerCase() !== mdObjectId) return;
-
-    // Match semantic props, not translated labels or a generic "New" button.
-    for (const wrapper of related.querySelectorAll('[data-tid="add"]')) {
-      if (!ancestorProps(wrapper).some(props => isFieldCollection(props, mdObjectId))) continue;
-      const button = wrapper.querySelector<HTMLButtonElement>('button');
-      if (!button || button.disabled || !button.getClientRects().length) continue;
-      clearHandoff(); // Consume before clicking: reloads must never reopen the dialog.
-      button.click();
-      return;
-    }
-    if (selectingFields) return;
-    const props = ancestorProps(related).find(props =>
-      Array.isArray(props.relatedRecords) && typeof props.onRecordChange === 'function');
-    const index = props?.relatedRecords.findIndex((record: Props) => Number(record.relatedObjectType) === 73);
-    if (props && index >= 0 && Number(props.selectedRecord?.relatedObjectType) !== 73) {
-      selectingFields = true;
-      selectedAt = Date.now();
-      props.onRecordChange(index);
-    }
-  }
-
   function sync(): void {
     if (!enabled) return;
-    // Allow a retry only after a stalled React render, never toggle an active tab.
-    if (selectingFields && Date.now() - selectedAt > 5000) selectingFields = false;
-    completeHandoff();
     const context = recordContext(location.pathname);
     const existing = document.getElementById(BUTTON_ID);
     if (!context) {
@@ -405,8 +353,9 @@ export function createFieldShortcut(): {
         props.objectId?.toLowerCase() === context.objectId));
     const menu = header?.querySelector('[data-tid="menu"]');
     if (!header || !menu?.parentElement) { existing?.remove(); return; }
-    const warmUrl = settingsUrl(objectMetadata(header, context.objectType) ?? {}, context.objectType);
-    if (warmUrl) prewarmFieldEditor(warmUrl);
+    // Release an editor prepared for another object; a new one loads only on intent.
+    if (warmEditor && warmEditor.objectType !== context.objectType &&
+        !document.getElementById('fireberry-inline-field-editor')) disposeWarmFieldEditor();
     if (existing && header.contains(existing) &&
         existing.dataset.objectType === String(context.objectType) &&
         existing.dataset.objectId === context.objectId) return;
@@ -425,6 +374,10 @@ export function createFieldShortcut(): {
     button.addEventListener('mouseenter', () => { button.style.background = '#f0f2f6'; button.style.color = '#5277ed'; });
     button.addEventListener('mouseleave', () => { button.style.background = 'transparent'; button.style.color = '#999'; });
     for (const event of ['pointerdown', 'mousedown']) button.addEventListener(event, event => event.stopPropagation());
+    warmOnIntent(button, () => {
+      const current = recordContext(location.pathname);
+      return current && header.isConnected ? settingsUrl(objectMetadata(header, current.objectType) ?? {}, current.objectType) : null;
+    });
     button.addEventListener('click', event => {
       event.preventDefault();
       event.stopPropagation();
@@ -441,6 +394,17 @@ export function createFieldShortcut(): {
       else notice('לא ניתן לזהות את הגדרות האובייקט. רענן את העמוד ונסה שוב.');
     });
     menu.parentElement.insertBefore(button, menu);
+  }
+
+  // Load the hidden native editor only when the user shows intent to use it.
+  function warmOnIntent(button: HTMLElement, url: () => string | null): void {
+    const warm = (): void => {
+      if (!enabled || document.getElementById('fireberry-inline-field-editor')) return;
+      const target = url();
+      if (target) prewarmFieldEditor(target);
+    };
+    button.addEventListener('mouseenter', warm);
+    button.addEventListener('focus', warm);
   }
 
   function schedule(): void {
@@ -464,6 +428,12 @@ export function createFieldShortcut(): {
     button.addEventListener('mouseenter', () => { button.style.background = '#f0f2f6'; button.style.color = '#5277ed'; });
     button.addEventListener('mouseleave', () => { button.style.background = 'transparent'; button.style.color = '#999'; });
     for (const type of ['pointerdown', 'mousedown']) button.addEventListener(type, event => event.stopPropagation());
+    warmOnIntent(button, () => {
+      if (!element.isConnected) return null;
+      const current = ancestorProps(element).find(props => props.field?.fieldname)?.field;
+      const type = Number(current?.objecttype);
+      return settingsUrl(objectMetadata(element, type) ?? {}, type);
+    });
     button.addEventListener('click', event => {
       event.preventDefault(); event.stopPropagation();
       if (!enabled || !element.isConnected || document.getElementById('fireberry-inline-field-editor')) return;

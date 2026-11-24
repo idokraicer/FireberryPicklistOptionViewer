@@ -111,41 +111,48 @@ test('rebinds the icon when React reuses the same header DOM for another object'
   assert.equal(h.opened.length, 0);
 });
 
-test('handoff selects field collection and ignores unrelated add buttons', () => {
-  const h = harness(`/app/settings/organization/objects/${id}?fb-create-field=1`);
+test('native editor driver selects the field collection, then clicks only its own add button', () => {
+  const h = harness();
   const wrong = h.props(new h.Element(), { objectType: 108, relatedObjectType: 58, relatedObjectId: id });
   const wrongButton = new h.Element(); wrongButton.tagName = 'button'; wrong.appendChild(wrongButton); h.related.adds.push(wrong);
-  h.api.createFieldShortcut().setEnabled(true); h.flush();
+  const state = { opened: false, selected: false };
+  h.api.advanceNativeEditor(h.document, 1, id, state);
   assert.equal(h.related.selected, 1);
   assert.equal(wrongButton.clicks, undefined);
   const add = h.props(new h.Element(), { objectType: 73, relatedObjectType: 58, relatedObjectId: id });
   const button = new h.Element(); button.tagName = 'button'; add.appendChild(button); h.related.adds = [add];
-  h.tick(); h.tick();
+  h.api.advanceNativeEditor(h.document, 1, id, state);
+  h.api.advanceNativeEditor(h.document, 1, id, state);
   assert.equal(button.clicks, 1);
-  assert.equal(new URL(h.location.href).search, '');
 });
 
-test('handoff refuses mismatched metadata or parent object', () => {
-  const h = harness(`/app/settings/organization/objects/${id}?fb-create-field=2`);
+test('native editor driver refuses mismatched metadata or parent object', () => {
+  const h = harness();
   const add = h.props(new h.Element(), { objectType: 73, relatedObjectType: 58, relatedObjectId: id });
   const button = new h.Element(); button.tagName = 'button'; add.appendChild(button); h.related.adds = [add];
-  h.api.createFieldShortcut().setEnabled(true); h.flush();
+  h.api.advanceNativeEditor(h.document, 2, id, { opened: false, selected: false });
   assert.equal(button.clicks, undefined);
   assert.equal(h.related.selected, undefined);
   assert.equal(h.api.isFieldCollection({ objectType: 73, relatedObjectType: 58, relatedObjectId: recordId }, id), false);
 });
 
 test('settings page resolves nested Redux context beyond 150 styled component ancestors', () => {
-  const h = harness(`/app/settings/organization/objects/${id}?fb-create-field=1`);
+  const h = harness();
   let fiber = h.related.__reactFiberTest;
   fiber.return = { memoizedProps: { store: { getState: () => ({ objects: [] }) } } };
   fiber = fiber.return;
   for (let i = 0; i < 165; i++) { fiber.return = { memoizedProps: {} }; fiber = fiber.return; }
   fiber.return = { memoizedProps: { value: { store: { getState: () => ({ objects: [h.metadata] }) } } } };
-  h.api.createFieldShortcut().setEnabled(true); h.flush();
+  h.api.advanceNativeEditor(h.document, 1, id, { opened: false, selected: false }, undefined, true);
   assert.equal(h.related.selected, 1);
 });
 
+test('record pages do not load the hidden editor until the user hovers a shortcut', () => {
+  const h = harness(); h.api.createFieldShortcut().setEnabled(true); h.flush(); h.tick();
+  assert.equal(h.document.getElementById('fireberry-warm-field-editor-frame'), undefined);
+  h.actions.children[0].events.mouseenter();
+  assert.equal(h.document.getElementById('fireberry-warm-field-editor-frame').src, `https://app.fireberry.com/app/settings/organization/objects/${id}`);
+});
 
 test('native X and Cancel dismiss synchronously, restore the page and preserve the warmed editor', () => {
  for (const dismiss of ['close', 'ביטול']) {
